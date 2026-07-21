@@ -2,7 +2,6 @@ import os
 import torch
 import numpy as np
 import logging
-from ultralytics import YOLO
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,21 @@ class CarDetector:
         if not os.path.exists(model_path):
             logger.error(f"Модель не найдена: {model_path}")
             raise FileNotFoundError(f"YOLO модель не найдена: {model_path}")
-        self.model = YOLO(model_path)
+
+        local_yolo_dir = os.path.join(os.path.dirname(model_path), "yolov5")
+        if not os.path.exists(local_yolo_dir):
+            import subprocess
+            logger.info("Клонирование YOLOv5 в models/yolov5...")
+            subprocess.run([
+                "git", "clone", "--depth", "1",
+                "https://github.com/ultralytics/yolov5.git",
+                local_yolo_dir
+            ], check=True)
+
+        self.model = torch.hub.load(local_yolo_dir, "custom", path=model_path, source="local", trust_repo=True)
+        self.model.conf = conf
+        self.model.iou = iou
+        self.model.to(device)
         logger.info("YOLOv5 модель загружена")
 
     def detect(self, frame: np.ndarray) -> dict:

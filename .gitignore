@@ -6,5 +6,5 @@ photos/
 *.log
 venv/
 .env
-models/
 data/
+models/yolov5/
