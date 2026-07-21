@@ -22,8 +22,8 @@ web:
 
 detector:
   yolo_model: "models/YOLOS_cars.pt"
-  confidence: 0.5
-  iou: 0.4
+  confidence: 0.25
+  iou: 0.3
   device: "cpu"
 
 plate_reader:
