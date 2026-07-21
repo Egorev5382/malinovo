@@ -2,6 +2,7 @@ import os
 import torch
 import numpy as np
 import logging
+from ultralytics import YOLO
 
 logger = logging.getLogger(__name__)
 
@@ -17,35 +18,26 @@ class CarDetector:
         if not os.path.exists(model_path):
             logger.error(f"Модель не найдена: {model_path}")
             raise FileNotFoundError(f"YOLO модель не найдена: {model_path}")
-        self.model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True, force_reload=True)
-        self.model.conf = conf
-        self.model.iou = iou
-        self.model.to(device)
+        self.model = YOLO(model_path)
         logger.info("YOLOv5 модель загружена")
 
     def detect(self, frame: np.ndarray) -> dict:
-        results = self.model([frame])
-        labels = results.xyxyn[0][:, -1].cpu().numpy()
-        cords = results.xyxyn[0][:, :-1].cpu().numpy()
-
+        results = self.model(frame, conf=self.conf, iou=self.iou, device=self.device, verbose=False)
         h, w = frame.shape[:2]
         output = {"plates": [], "cars": [], "trucks": [], "buses": []}
 
-        for i in range(len(labels)):
-            row = cords[i]
-            x1, y1, x2, y2 = (
-                int(row[0] * w), int(row[1] * h),
-                int(row[2] * w), int(row[3] * h)
-            )
-            cls = int(labels[i])
-            if cls == 0:
-                output["plates"].append((x1, y1, x2, y2))
-            elif cls == 1:
-                output["cars"].append((x1, y1, x2, y2))
-            elif cls == 2:
-                output["trucks"].append((x1, y1, x2, y2))
-            elif cls == 3:
-                output["buses"].append((x1, y1, x2, y2))
+        for r in results:
+            for box in r.boxes:
+                cls = int(box.cls[0])
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                if cls == 0:
+                    output["plates"].append((x1, y1, x2, y2))
+                elif cls == 1:
+                    output["cars"].append((x1, y1, x2, y2))
+                elif cls == 2:
+                    output["trucks"].append((x1, y1, x2, y2))
+                elif cls == 3:
+                    output["buses"].append((x1, y1, x2, y2))
 
         return output
 
