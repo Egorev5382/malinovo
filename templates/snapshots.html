@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h3>Скриншоты</h3>
+    {% if snapshots %}
+    <div class="row">
+        {% for snap in snapshots %}
+        <div class="col-6 col-md-4 col-lg-3 mb-3">
+            <div class="card bg-dark border-secondary">
+                <img src="/snapshots/{{ snap }}" class="card-img-top" style="cursor:pointer;" onclick="window.open(this.src)">
+                <div class="card-body p-2 text-center">
+                    <small class="text-muted">{{ snap }}</small>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-secondary">Скриншотов пока нет</div>
+    {% endif %}
+</div>
+{% endblock %}

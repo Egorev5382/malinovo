@@ -1,4 +1,5 @@
 import os
+import glob
 import yaml
 import secrets
 import functools
@@ -67,6 +68,10 @@ def logout():
 @app.route("/")
 @login_required
 def logs():
+    flag_file = os.path.join(BASE_DIR, "system_started")
+    startup_photo = os.path.join(BASE_DIR, "startup_photo.jpg")
+    if os.path.exists(startup_photo) and not os.path.exists(flag_file):
+        return redirect(url_for("startup"))
     page = request.args.get("page", 1, type=int)
     per_page = 20
     offset = (page - 1) * per_page
@@ -192,6 +197,41 @@ def api_open_gate():
     result = gate.open_gate()
     gate.disconnect()
     return jsonify({"success": result})
+
+
+@app.route("/startup")
+def startup():
+    startup_photo = os.path.join(BASE_DIR, "startup_photo.jpg")
+    has_photo = os.path.exists(startup_photo)
+    return render_template("startup.html", has_photo=has_photo)
+
+
+@app.route("/startup/confirm", methods=["POST"])
+def startup_confirm():
+    flag_file = os.path.join(BASE_DIR, "system_started")
+    with open(flag_file, "w") as f:
+        f.write("ok")
+    flash("Система запущена!", "success")
+    return redirect(url_for("logs"))
+
+
+@app.route("/startup/photo")
+def startup_photo():
+    return send_from_directory(BASE_DIR, "startup_photo.jpg")
+
+
+@app.route("/snapshots")
+@login_required
+def snapshots():
+    snaps = sorted(glob.glob(os.path.join(BASE_DIR, "snap_*.jpg")), reverse=True)
+    snap_files = [os.path.basename(s) for s in snaps]
+    return render_template("snapshots.html", snapshots=snap_files)
+
+
+@app.route("/snapshots/<path:filename>")
+@login_required
+def serve_snapshot(filename):
+    return send_from_directory(BASE_DIR, filename)
 
 
 if __name__ == "__main__":

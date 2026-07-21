@@ -20,6 +20,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def load_config(path="config.yaml"):
     with open(path, "r", encoding="utf-8") as f:
@@ -32,6 +34,7 @@ def main():
 
     camera = Camera(config["camera"]["rtsp_url"])
 
+    logger.info("Загрузка моделей...")
     detector = CarDetector(
         model_path=config["detector"]["yolo_model"],
         conf=config["detector"]["confidence"],
@@ -46,7 +49,7 @@ def main():
 
     db = Database(
         db_path=config["database"]["path"],
-        photos_dir=config["database"]["photos_dir"]
+        photos_dir=BASE_DIR
     )
 
     gate = MQTTGate(
@@ -58,13 +61,35 @@ def main():
     )
     gate.connect()
 
+    flag_file = os.path.join(BASE_DIR, "system_started")
+    startup_photo = os.path.join(BASE_DIR, "startup_photo.jpg")
+
+    if os.path.exists(flag_file):
+        os.remove(flag_file)
+
+    logger.info("Захват тестового кадра...")
+    time.sleep(2)
+    test_frame = camera.get_frame()
+    if test_frame is not None:
+        cv2.imwrite(startup_photo, test_frame)
+        logger.info(f"Тестовый кадр сохранён: {startup_photo}")
+    else:
+        logger.warning("Не удалось получить кадр с камеры")
+
+    logger.info("=== Ожидание подтверждения на http://localhost:8080/startup ===")
+    while not os.path.exists(flag_file):
+        time.sleep(1)
+
+    if os.path.exists(flag_file):
+        os.remove(flag_file)
+
+    logger.info("Подтверждено! Запуск детекции...")
+
     interval = config["camera"]["capture_interval"]
     gate_cooldown = config["gate"]["open_duration"]
     last_gate_time = 0
     empty_frame_counter = 0
     empty_frame_interval = 5
-    snapshots_dir = os.path.join(config["database"]["photos_dir"], "snapshots")
-    os.makedirs(snapshots_dir, exist_ok=True)
 
     logger.info(f"Интервал захвата: {interval} сек")
     logger.info("Ожидание транспорта...")
@@ -180,7 +205,7 @@ def main():
                 empty_frame_counter += 1
                 if empty_frame_counter >= empty_frame_interval:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    snap_path = os.path.join(snapshots_dir, f"snap_{timestamp}.jpg")
+                    snap_path = os.path.join(BASE_DIR, f"snap_{timestamp}.jpg")
                     cv2.imwrite(snap_path, frame)
                     logger.info(f"Скриншот: {snap_path}")
                     empty_frame_counter = 0
