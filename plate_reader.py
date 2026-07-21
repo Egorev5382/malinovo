@@ -95,7 +95,7 @@ class PlateRecognizer:
         self.model.to(torch.device(device))
 
         if os.path.exists(model_path):
-            self.model.load_state_dict(torch.load(model_path, map_location=device))
+            self.model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
             logger.info(f"LPRNet модель загружена: {model_path}")
         else:
             logger.error(f"LPRNet веса не найдены: {model_path}")
@@ -103,6 +103,14 @@ class PlateRecognizer:
 
         self.model.eval()
         self.plate_pattern = re.compile(r'^[A-Z]\d{3}[A-Z]{2}\d{2,3}$')
+
+        self.ocr = None
+        try:
+            import easyocr
+            self.ocr = easyocr.Reader(["ru", "en"], gpu=False)
+            logger.info("EasyOCR загружен (fallback)")
+        except Exception as e:
+            logger.warning(f"EasyOCR недоступен: {e}")
 
     def preprocess(self, image: np.ndarray) -> torch.Tensor:
         import cv2
@@ -138,6 +146,7 @@ class PlateRecognizer:
     def read_plate(self, image: np.ndarray) -> dict:
         if image is None or image.size == 0:
             return None
+
         try:
             tensor = self.preprocess(image)
             with torch.no_grad():
@@ -145,8 +154,21 @@ class PlateRecognizer:
             preds = preds.cpu().detach().numpy()
             text = self.decode(preds[0])
             if self.is_valid_plate(text):
-                return {"text": text, "confidence": 0.9}
-            return None
+                logger.info(f"LPRNet: {text}")
+                return {"text": text, "confidence": 0.9, "engine": "LPRNet"}
         except Exception as e:
-            logger.error(f"Ошибка распознавания номера: {e}")
-            return None
+            logger.error(f"LPRNet ошибка: {e}")
+
+        if self.ocr:
+            try:
+                import cv2
+                results = self.ocr.readtext(image)
+                for (_, text, conf) in results:
+                    clean = re.sub(r'[^A-Za-z0-9]', '', text.upper())
+                    if self.is_valid_plate(clean):
+                        logger.info(f"EasyOCR: {clean}")
+                        return {"text": clean, "confidence": conf, "engine": "EasyOCR"}
+            except Exception as e:
+                logger.error(f"EasyOCR ошибка: {e}")
+
+        return None

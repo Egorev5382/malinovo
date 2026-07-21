@@ -103,7 +103,8 @@ def main():
 
                     plate_text = plate_info["text"]
                     plate_conf = plate_info["confidence"]
-                    logger.info(f"Номер: {plate_text} | Тип: {vehicle_type} | Точность: {plate_conf:.2f}")
+                    engine = plate_info.get("engine", "?")
+                    logger.info(f"Номер: {plate_text} | Тип: {vehicle_type} | Движок: {engine} | Точность: {plate_conf:.2f}")
 
                     photo_path = db.save_photo(frame, plate_text)
                     is_allowed = db.is_allowed(plate_text)
@@ -147,7 +148,8 @@ def main():
 
                 plate_text = plate_info["text"]
                 plate_conf = plate_info["confidence"]
-                logger.info(f"Номер (без машины): {plate_text} | Точность: {plate_conf:.2f}")
+                engine = plate_info.get("engine", "?")
+                logger.info(f"Номер (без машины): {plate_text} | Движок: {engine} | Точность: {plate_conf:.2f}")
 
                 photo_path = db.save_photo(frame, plate_text)
                 is_allowed = db.is_allowed(plate_text)

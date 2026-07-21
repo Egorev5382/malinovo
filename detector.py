@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 CLASS_NAMES = {0: "plate", 1: "car", 2: "truck", 3: "bus"}
 
+COCO_VEHICLE_CLASSES = {2: "car", 5: "bus", 7: "truck"}
+
 
 class CarDetector:
     def __init__(self, model_path: str, conf: float = 0.5, iou: float = 0.4, device: str = "cpu"):
@@ -34,7 +36,17 @@ class CarDetector:
         self.model.to(device)
         logger.info("YOLOv5 модель загружена")
 
+        self.yolov8 = None
+        try:
+            from ultralytics import YOLO
+            self.yolov8 = YOLO("yolov8n.pt")
+            logger.info("YOLOv8n загружен (доп. детекция)")
+        except Exception as e:
+            logger.warning(f"YOLOv8n недоступен: {e}")
+
     def detect(self, frame: np.ndarray) -> dict:
+        output = {"plates": [], "cars": [], "trucks": [], "buses": []}
+
         self.model.conf = self.conf
         self.model.iou = self.iou
         results = self.model([frame])
@@ -42,8 +54,6 @@ class CarDetector:
         cords = results.xyxyn[0][:, :-1].cpu().numpy()
 
         h, w = frame.shape[:2]
-        output = {"plates": [], "cars": [], "trucks": [], "buses": []}
-
         for i in range(len(labels)):
             row = cords[i]
             x1, y1, x2, y2 = (
@@ -60,7 +70,47 @@ class CarDetector:
             elif cls == 3:
                 output["buses"].append((x1, y1, x2, y2))
 
+        if self.yolov8:
+            try:
+                v8_results = self.yolov8(frame, conf=self.conf, iou=self.iou, verbose=False)
+                for r in v8_results:
+                    for box in r.boxes:
+                        cls = int(box.cls[0])
+                        if cls not in COCO_VEHICLE_CLASSES:
+                            continue
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        vtype = COCO_VEHICLE_CLASSES[cls]
+                        bbox = (x1, y1, x2, y2)
+                        if not self._overlaps_any(bbox, output):
+                            if vtype == "car":
+                                output["cars"].append(bbox)
+                            elif vtype == "truck":
+                                output["trucks"].append(bbox)
+                            elif vtype == "bus":
+                                output["buses"].append(bbox)
+                logger.info(f"YOLOv8: +cars={len(output['cars'])} +trucks={len(output['trucks'])} +buses={len(output['buses'])}")
+            except Exception as e:
+                logger.error(f"YOLOv8 ошибка: {e}")
+
         return output
+
+    def _overlaps_any(self, bbox, output):
+        for key in ["cars", "trucks", "buses"]:
+            for existing in output[key]:
+                if self._iou_box(bbox, existing) > 0.5:
+                    return True
+        return False
+
+    def _iou_box(self, box1, box2):
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        inter = max(0, x2 - x1) * max(0, y2 - y1)
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union = area1 + area2 - inter
+        return inter / union if union > 0 else 0
 
     def match_plates_to_vehicles(self, detections: dict) -> list:
         matched = []
