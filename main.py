@@ -125,6 +125,50 @@ def main():
 
                     gate.publish_plate(plate_text, is_allowed, gate_opened)
 
+            matched_plates = set()
+            for item in matched:
+                matched_plates.add(tuple(item["plate"]))
+
+            for plate_bbox in detections["plates"]:
+                if tuple(plate_bbox) in matched_plates:
+                    continue
+
+                plate_image = detector.crop_plate(frame, plate_bbox)
+                plate_info = plate_reader.read_plate(plate_image)
+
+                if not plate_info:
+                    logger.info("Номер без машины не распознан")
+                    continue
+
+                plate_text = plate_info["text"]
+                plate_conf = plate_info["confidence"]
+                logger.info(f"Номер (без машины): {plate_text} | Точность: {plate_conf:.2f}")
+
+                photo_path = db.save_photo(frame, plate_text)
+                is_allowed = db.is_allowed(plate_text)
+
+                gate_opened = False
+                current_time = time.time()
+                if is_allowed and (current_time - last_gate_time) > gate_cooldown:
+                    if gate.open_gate():
+                        gate_opened = True
+                        last_gate_time = current_time
+                        logger.info(f"Ворота открыты для {plate_text}")
+                    else:
+                        logger.error(f"Не удалось открыть ворота для {plate_text}")
+                elif not is_allowed:
+                    logger.info(f"Номер {plate_text} не в базе — доступ запрещён")
+
+                db.add_log(
+                    plate=plate_text,
+                    photo_path=photo_path,
+                    allowed=is_allowed,
+                    gate_opened=gate_opened,
+                    confidence=plate_conf
+                )
+
+                gate.publish_plate(plate_text, is_allowed, gate_opened)
+
             time.sleep(interval)
 
     except KeyboardInterrupt:
