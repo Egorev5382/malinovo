@@ -1,6 +1,4 @@
 opencv-python-headless>=4.6.0
-torch>=1.13.0
-torchvision>=0.14.0
 SQLAlchemy>=2.0.0
 Flask>=3.0.0
 paho-mqtt>=1.6.0

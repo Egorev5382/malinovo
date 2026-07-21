@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  gate:
+    build: .
+    container_name: gate_system
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./data:/app/photos
+      - ./gate_system.db:/app/gate_system.db
+    environment:
+      - PYTHONUNBUFFERED=1

@@ -7,3 +7,4 @@ photos/
 venv/
 .env
 models/
+data/
