@@ -17,7 +17,7 @@ class CarDetector:
         if not os.path.exists(model_path):
             logger.error(f"Модель не найдена: {model_path}")
             raise FileNotFoundError(f"YOLO модель не найдена: {model_path}")
-        self.model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True)
+        self.model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, trust_repo=True, force_reload=True)
         self.model.conf = conf
         self.model.iou = iou
         self.model.to(device)

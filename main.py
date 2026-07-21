@@ -72,7 +72,10 @@ def main():
                 time.sleep(interval)
                 continue
 
+            logger.info(f"Кадр захвачен: {frame.shape}")
             detections = detector.detect(frame)
+            total = len(detections["plates"]) + len(detections["cars"]) + len(detections["trucks"]) + len(detections["buses"])
+            logger.info(f"Детекция: {total} объектов (plates={len(detections['plates'])}, cars={len(detections['cars'])})")
             matched = detector.match_plates_to_vehicles(detections)
 
             if matched:
