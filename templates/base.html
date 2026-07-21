@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Система контроля въезда{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root{--bg:#0f1923;--card:#1a2733;--accent:#00d4aa;--danger:#ff4757;--text:#e8edf2;--muted:#7b8a9a}
+        body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+        .navbar{background:var(--card)!important;border-bottom:1px solid rgba(0,212,170,.2)}
+        .navbar-brand{color:var(--accent)!important;font-weight:700;letter-spacing:1px}
+        .nav-link{color:var(--muted)!important;transition:color .2s}
+        .nav-link:hover,.nav-link.active{color:var(--accent)!important}
+        .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:12px}
+        .card-header{background:rgba(0,212,170,.08);border-bottom:1px solid rgba(0,212,170,.15);font-weight:600}
+        .table{color:var(--text)}
+        .table thead th{border-color:rgba(255,255,255,.08);background:rgba(0,0,0,.2)}
+        .table td{border-color:rgba(255,255,255,.05);vertical-align:middle}
+        .badge-ok{background:rgba(0,212,170,.2);color:var(--accent)}
+        .badge-no{background:rgba(255,71,87,.2);color:var(--danger)}
+        .btn-accent{background:var(--accent);color:#000;font-weight:600;border:none}
+        .btn-accent:hover{background:#00b894;color:#000}
+        .btn-red{background:var(--danger);color:#fff;border:none}
+        .btn-red:hover{background:#e84040;color:#fff}
+        .plate-inp{text-transform:uppercase;font-family:'Courier New',monospace;font-size:1.1rem;letter-spacing:2px;background:rgba(0,0,0,.3);border:1px solid rgba(0,212,170,.3);color:var(--text)}
+        .plate-inp:focus{border-color:var(--accent);box-shadow:0 0 0 .2rem rgba(0,212,170,.25)}
+        .stat-num{font-size:2.5rem;font-weight:700;color:var(--accent)}
+        .stat-lbl{color:var(--muted);font-size:.85rem;text-transform:uppercase;letter-spacing:1px}
+        .flash-box{position:fixed;top:70px;right:12px;left:12px;z-index:9999;max-width:none}
+        .entry-photo{max-width:100%;border-radius:8px;border:2px solid rgba(0,212,170,.3)}
+        .log-row{cursor:pointer;transition:background .15s}
+        .log-row:hover{background:rgba(0,212,170,.05)}
+        .gate-fab{position:fixed;bottom:30px;right:30px;width:64px;height:64px;border-radius:50%;font-size:1.5rem;z-index:1000;box-shadow:0 4px 20px rgba(0,212,170,.4)}
+        .mobile-hide{display:table-cell}
+        .plate-code{font-family:'Courier New',monospace;font-size:1rem;color:var(--accent);white-space:nowrap}
+        @media(max-width:768px){
+            .stat-num{font-size:1.6rem}
+            .stat-lbl{font-size:.7rem}
+            .gate-fab{bottom:20px;right:16px;width:52px;height:52px;font-size:1.2rem}
+            .flash-box{top:64px;right:8px;left:8px}
+            .mobile-hide{display:none}
+            .plate-code{font-size:.85rem}
+            .table td,.table th{padding:.4rem .3rem;font-size:.82rem}
+        }
+        @media(max-width:400px){
+            .stat-num{font-size:1.3rem}
+            .table td,.table th{padding:.35rem .25rem;font-size:.75rem}
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="bi bi-camera-video"></i> GATE CONTROL</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="nav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link {% if request.path=='/' %}active{% endif %}" href="/"><i class="bi bi-clock-history"></i> Логи</a></li>
+                    <li class="nav-item"><a class="nav-link {% if request.path=='/plates' %}active{% endif %}" href="/plates"><i class="bi bi-credit-card"></i> Номера</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/logout"><i class="bi bi-box-arrow-right"></i> Выход</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <div class="flash-box">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}{% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+            {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}{% endif %}{% endwith %}
+    </div>
+    <div class="container">{% block content %}{% endblock %}</div>
+    <button class="btn btn-accent gate-fab" onclick="openGate()" title="Открыть ворота"><i class="bi bi-door-open"></i></button>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    function openGate(){
+        if(!confirm('Открыть ворота?'))return;
+        fetch('/api/gate/open',{method:'POST'}).then(r=>r.json()).then(d=>{
+            if(d.success)alert('Ворота открыты!');else alert('Ошибка');
+        }).catch(()=>alert('Ошибка соединения'));
+    }
+    setTimeout(()=>{document.querySelectorAll('.alert').forEach(e=>e.remove())},4000);
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

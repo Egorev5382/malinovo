@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Управление номерами — Gate Control{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-12 col-lg-5 mb-4">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-plus-circle"></i> Добавить номер</div>
+            <div class="card-body">
+                <form method="POST" action="/plates/add">
+                    <div class="mb-3">
+                        <label class="form-label">Номерной знак</label>
+                        <input type="text" name="plate" class="form-control plate-inp" placeholder="A123BC77" required maxlength="12" inputmode="text" autocapitalize="characters">
+                        <div class="form-text text-muted">А В Е К М Н О Р С Т У Х + цифры</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Владелец</label>
+                        <input type="text" name="owner" class="form-control" placeholder="Иванов И.И.">
+                    </div>
+                    <button type="submit" class="btn btn-accent w-100"><i class="bi bi-plus-lg"></i> Добавить</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-lg-7 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-ul"></i> Разрешённые номера ({{ plates|length }})</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead><tr><th>Номер</th><th class="mobile-hide">Владелец</th><th class="mobile-hide">Добавлен</th><th></th></tr></thead>
+                    <tbody>
+                    {% for p in plates %}
+                    <tr>
+                        <td><span class="plate-code">{{ p.plate }}</span></td>
+                        <td class="mobile-hide">{{ p.owner or '—' }}</td>
+                        <td class="mobile-hide" style="font-size:.8rem">{{ p.added_at[:10] }}</td>
+                        <td>
+                            <form method="POST" action="/plates/remove" class="d-inline" onsubmit="return confirm('Удалить {{ p.plate }}?')">
+                                <input type="hidden" name="plate" value="{{ p.plate }}">
+                                <button type="submit" class="btn btn-sm btn-red"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not plates %}
+                    <tr><td colspan="4" class="text-center text-muted py-4">Нет добавленных номеров</td></tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

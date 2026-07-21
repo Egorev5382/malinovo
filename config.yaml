@@ -1,0 +1,38 @@
+camera:
+  rtsp_url: "rtsp://admin:Qwe123654@@192.168.1.77:554/11"
+  capture_interval: 5
+
+mqtt:
+  broker: "127.0.0.1"
+  port: 1883
+  topic: "gate/open"
+  username: ""
+  password: ""
+
+gate:
+  open_duration: 5
+
+database:
+  path: "gate_system.db"
+  photos_dir: "photos"
+
+web:
+  host: "0.0.0.0"
+  port: 8080
+
+detector:
+  yolo_model: "models/YOLOS_cars.pt"
+  confidence: 0.5
+  iou: 0.4
+  device: "cpu"
+
+plate_reader:
+  model_path: "models/LPRNet.pth"
+  max_len: 9
+
+tunnel:
+  enabled: false
+
+auth:
+  username: "admin"
+  password: "gate2024"
