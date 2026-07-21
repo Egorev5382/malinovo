@@ -3,6 +3,7 @@ import time
 import yaml
 import logging
 import datetime
+import cv2
 from camera import Camera
 from detector import CarDetector
 from plate_reader import PlateRecognizer
@@ -60,6 +61,10 @@ def main():
     interval = config["camera"]["capture_interval"]
     gate_cooldown = config["gate"]["open_duration"]
     last_gate_time = 0
+    empty_frame_counter = 0
+    empty_frame_interval = 5
+    snapshots_dir = os.path.join(config["database"]["photos_dir"], "snapshots")
+    os.makedirs(snapshots_dir, exist_ok=True)
 
     logger.info(f"Интервал захвата: {interval} сек")
     logger.info("Ожидание транспорта...")
@@ -168,6 +173,17 @@ def main():
                 )
 
                 gate.publish_plate(plate_text, is_allowed, gate_opened)
+
+            if total == 0:
+                empty_frame_counter += 1
+                if empty_frame_counter >= empty_frame_interval:
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    snap_path = os.path.join(snapshots_dir, f"snap_{timestamp}.jpg")
+                    cv2.imwrite(snap_path, frame)
+                    logger.info(f"Скриншот: {snap_path}")
+                    empty_frame_counter = 0
+            else:
+                empty_frame_counter = 0
 
             time.sleep(interval)
 
