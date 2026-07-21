@@ -100,8 +100,8 @@ class LPRNet(torch.nn.Module):
 def load_yolo(model_path):
     local_yolo_dir = os.path.join(os.path.dirname(model_path), "yolov5")
     if not os.path.exists(local_yolo_dir):
-        print("Клонирование YOLOv5...")
-        os.system(f'git clone --depth 1 https://github.com/ultralytics/yolov5.git "{local_yolo_dir}"')
+        print("Клонирование YOLOv5 v7.0...")
+        os.system(f'git clone --depth 1 --branch v7.0 https://github.com/ultralytics/yolov5.git "{local_yolo_dir}"')
     model = torch.hub.load(local_yolo_dir, "custom", path=model_path, source="local", trust_repo=True)
     model.conf = 0.25
     model.iou = 0.3

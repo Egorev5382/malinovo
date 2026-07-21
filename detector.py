@@ -25,7 +25,7 @@ class CarDetector:
             import subprocess
             logger.info("Клонирование YOLOv5 в models/yolov5...")
             subprocess.run([
-                "git", "clone", "--depth", "1",
+                "git", "clone", "--depth", "1", "--branch", "v7.0",
                 "https://github.com/ultralytics/yolov5.git",
                 local_yolo_dir
             ], check=True)
