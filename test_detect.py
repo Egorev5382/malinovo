@@ -145,9 +145,10 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Тест детекции машин и номеров")
     parser.add_argument("--image", "-i", type=str, help="Путь к изображению")
+    parser.add_argument("--folder", "-f", type=str, help="Папка с изображениями")
     parser.add_argument("--video", "-v", type=str, help="Путь к видео или URL потока")
     parser.add_argument("--camera", "-c", action="store_true", help="Веб-камера")
-    parser.add_argument("--output", "-o", type=str, help="Сохранить результат")
+    parser.add_argument("--output", "-o", type=str, help="Сохранить результат (для --image)")
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -186,6 +187,39 @@ def main():
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
+    elif args.folder:
+        exts = (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
+        files = sorted([f for f in os.listdir(args.folder) if f.lower().endswith(exts)])
+        if not files:
+            print(f"Нет изображений в {args.folder}")
+            return
+        out_dir = os.path.join(args.folder, "results")
+        os.makedirs(out_dir, exist_ok=True)
+        print(f"Обработка {len(files)} изображений из {args.folder}...")
+        for fname in files:
+            path = os.path.join(args.folder, fname)
+            frame = cv2.imread(path)
+            if frame is None:
+                print(f"  [ERR] {fname}")
+                continue
+            detections = detect(yolo, frame)
+            result = draw_detections(frame, detections, recognizer)
+            out_path = os.path.join(out_dir, fname)
+            cv2.imwrite(out_path, result)
+            total = len(detections["plates"]) + len(detections["cars"]) + len(detections["trucks"]) + len(detections["buses"])
+            plates_texts = []
+            for bbox in detections["plates"]:
+                plate_crop = frame[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+                if recognizer:
+                    info = recognizer.read_plate(plate_crop)
+                    if info:
+                        plates_texts.append(info["text"])
+            if plates_texts:
+                print(f"  [{fname}] {total} объектов, номера: {', '.join(plates_texts)}")
+            else:
+                print(f"  [{fname}] {total} объектов, номеров нет")
+        print(f"Готово! Результаты: {out_dir}")
+
     elif args.video or args.camera:
         source = 0 if args.camera else args.video
         cap = cv2.VideoCapture(source)
@@ -217,6 +251,7 @@ def main():
     else:
         print("Использование:")
         print("  python test_detect.py --image photo.jpg")
+        print("  python test_detect.py --folder test_images/")
         print("  python test_detect.py --camera")
         print("  python test_detect.py --video video.mp4")
         print("  python test_detect.py --image photo.jpg --output result.jpg")
