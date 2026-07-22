@@ -1,108 +1,71 @@
 import os
 import re
+import cv2
 import torch
+import torch.nn as nn
 import numpy as np
 import logging
+from torchvision import transforms
+import torch.ao.quantization.quantize_fx as quantize_fx
+from torch.ao.quantization import QConfigMapping
 
 logger = logging.getLogger(__name__)
 
-CHARS = [
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K",
-    "L", "M", "N", "P", "Q", "R", "S", "T", "U", "V",
-    "W", "X", "Y", "Z", "I", "O", "_"
-]
+OCR_ALPHABET = "0123456789ABCEHKMOPTXY"
+PLATE_PATTERN = re.compile(r'^[A-Z]\d{3}[A-Z]{2}\d{2,3}$')
 
 
-class SmallBasicBlock(torch.nn.Module):
-    def __init__(self, ch_in, ch_out):
-        super().__init__()
-        self.block = torch.nn.Sequential(
-            torch.nn.Conv2d(ch_in, ch_out // 4, kernel_size=1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(ch_out // 4, ch_out // 4, kernel_size=(3, 1), padding=(1, 0)),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(ch_out // 4, ch_out // 4, kernel_size=(1, 3), padding=(0, 1)),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(ch_out // 4, ch_out, kernel_size=1),
+class CRNN(nn.Module):
+    def __init__(self, num_classes):
+        super(CRNN, self).__init__()
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=3, padding=1), nn.ReLU(True), nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1), nn.ReLU(True), nn.MaxPool2d(2, 2),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1), nn.BatchNorm2d(256), nn.ReLU(True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1), nn.ReLU(True), nn.MaxPool2d((2, 1), (2, 1)),
+            nn.Conv2d(256, 512, kernel_size=3, padding=1), nn.BatchNorm2d(512), nn.ReLU(True),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1), nn.ReLU(True), nn.MaxPool2d((2, 1), (2, 1)),
         )
+        self.rnn = nn.LSTM(512 * 2, 256, bidirectional=True, num_layers=2, batch_first=True)
+        self.classifier = nn.Linear(512, num_classes)
 
     def forward(self, x):
-        return self.block(x)
-
-
-class LPRNet(torch.nn.Module):
-    def __init__(self, lpr_max_len=9, class_num=37, dropout_rate=0):
-        super().__init__()
-        self.lpr_max_len = lpr_max_len
-        self.class_num = class_num
-        self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 64, kernel_size=3, stride=1),
-            torch.nn.BatchNorm2d(64),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 1, 1)),
-            SmallBasicBlock(64, 128),
-            torch.nn.BatchNorm2d(128),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(2, 1, 2)),
-            SmallBasicBlock(64, 256),
-            torch.nn.BatchNorm2d(256),
-            torch.nn.ReLU(),
-            SmallBasicBlock(256, 256),
-            torch.nn.BatchNorm2d(256),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(4, 1, 2)),
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.Conv2d(64, 256, kernel_size=(1, 4), stride=1),
-            torch.nn.BatchNorm2d(256),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.Conv2d(256, class_num, kernel_size=(13, 1), stride=1),
-            torch.nn.BatchNorm2d(class_num),
-            torch.nn.ReLU(),
-        )
-        self.container = torch.nn.Sequential(
-            torch.nn.Conv2d(448 + class_num, class_num, kernel_size=(1, 1), stride=(1, 1))
-        )
-
-    def forward(self, x):
-        keep_features = []
-        for i, layer in enumerate(self.backbone.children()):
-            x = layer(x)
-            if i in [2, 6, 13, 22]:
-                keep_features.append(x)
-        global_context = []
-        for i, f in enumerate(keep_features):
-            if i in [0, 1]:
-                f = torch.nn.AvgPool2d(kernel_size=5, stride=5)(f)
-            if i in [2]:
-                f = torch.nn.AvgPool2d(kernel_size=(4, 10), stride=(4, 2))(f)
-            f_pow = torch.pow(f, 2)
-            f_mean = torch.mean(f_pow)
-            f = torch.div(f, f_mean)
-            global_context.append(f)
-        x = torch.cat(global_context, 1)
-        x = self.container(x)
-        logits = torch.mean(x, dim=2)
-        return logits
+        x = self.cnn(x)
+        batch, channels, height, width = x.size()
+        x = x.reshape(batch, channels * height, width)
+        x = x.permute(0, 2, 1)
+        x, _ = self.rnn(x)
+        x = self.classifier(x)
+        x = x.permute(1, 0, 2)
+        x = nn.functional.log_softmax(x, dim=2)
+        return x
 
 
 class PlateRecognizer:
-    def __init__(self, model_path: str, device: str = "cpu", max_len: int = 9):
-        self.device = device
-        self.max_len = max_len
-        self.model = LPRNet(lpr_max_len=max_len, class_num=len(CHARS), dropout_rate=0)
-        self.model.to(torch.device(device))
+    def __init__(self, model_path: str, device: str = "cpu"):
+        self.device = torch.device(device)
+        num_classes = len(OCR_ALPHABET) + 1
+
+        self.transform = transforms.Compose([
+            transforms.ToPILImage(), transforms.Grayscale(),
+            transforms.Resize((32, 128)),
+            transforms.ToTensor(), transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
+
+        self.int_to_char = {i + 1: char for i, char in enumerate(OCR_ALPHABET)}
+        self.int_to_char[0] = ""
 
         if os.path.exists(model_path):
-            self.model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-            logger.info(f"LPRNet модель загружена: {model_path}")
+            model_fp32 = CRNN(num_classes).eval()
+            qconfig_mapping = QConfigMapping().set_global(torch.ao.quantization.get_default_qconfig("fbgemm"))
+            example_inputs = (torch.randn(1, 1, 32, 128),)
+            model_prepared = quantize_fx.prepare_fx(model_fp32, qconfig_mapping, example_inputs)
+            self.model = quantize_fx.convert_fx(model_prepared)
+            self.model.load_state_dict(torch.load(model_path, map_location="cpu"))
+            logger.info(f"CRNN загружена: {model_path}")
         else:
-            logger.error(f"LPRNet веса не найдены: {model_path}")
-            raise FileNotFoundError(f"Веса не найдены: {model_path}")
-
-        self.model.eval()
-        self.plate_pattern = re.compile(r'^[A-Z]\d{3}[A-Z]{2}\d{2,3}$')
+            logger.error(f"CRNN веса не найдены: {model_path}")
+            raise FileNotFoundError(f"КРНН модель не найдена: {model_path}")
 
         self.ocr = None
         try:
@@ -112,60 +75,82 @@ class PlateRecognizer:
         except Exception as e:
             logger.warning(f"EasyOCR недоступен: {e}")
 
-    def preprocess(self, image: np.ndarray) -> torch.Tensor:
-        import cv2
-        img = cv2.resize(image, (94, 24))
-        img = img.astype("float32")
-        img -= 127.5
-        img *= 0.0078125
-        img = np.transpose(img, (2, 0, 1))
-        tensor = torch.from_numpy(img).to(self.device)
-        tensor = tensor.unsqueeze(0)
-        return tensor
+    def _order_points(self, pts):
+        rect = np.zeros((4, 2), dtype="float32")
+        s = pts.sum(axis=1)
+        rect[0] = pts[np.argmin(s)]
+        rect[2] = pts[np.argmax(s)]
+        diff = np.diff(pts, axis=1)
+        rect[1] = pts[np.argmin(diff)]
+        rect[3] = pts[np.argmax(diff)]
+        return rect
 
-    def decode(self, preds: np.ndarray) -> str:
-        label = ""
-        preds_label = []
-        for j in range(preds.shape[1]):
-            preds_label.append(np.argmax(preds[:, j], axis=0))
-        pre_c = preds_label[0]
-        if pre_c != len(CHARS) - 1:
-            label += CHARS[pre_c]
-        for c in preds_label:
-            if (pre_c == c) or (c == len(CHARS) - 1):
-                if c == len(CHARS) - 1:
-                    pre_c = c
-                continue
-            label += CHARS[c]
-            pre_c = c
-        return label
+    def _four_point_transform(self, image, pts):
+        rect = self._order_points(pts)
+        (tl, tr, br, bl) = rect
+        widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+        widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+        maxWidth = max(int(widthA), int(widthB))
+        heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+        heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+        maxHeight = max(int(heightA), int(heightB))
+        if maxWidth <= 0 or maxHeight <= 0:
+            return image
+        dst = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
+        M = cv2.getPerspectiveTransform(rect, dst)
+        return cv2.warpPerspective(image, M, (maxWidth, maxHeight))
 
-    def is_valid_plate(self, text: str) -> bool:
-        return bool(self.plate_pattern.match(text))
+    def _preprocess_plate(self, plate_image):
+        gray = cv2.cvtColor(plate_image, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return plate_image
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        for contour in contours:
+            peri = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+            if len(approx) == 4:
+                return self._four_point_transform(plate_image, approx.reshape(4, 2))
+        return plate_image
 
-    def read_plate(self, image: np.ndarray) -> dict:
+    @torch.no_grad()
+    def _recognize_crnn(self, plate_image):
+        try:
+            processed = self._preprocess_plate(plate_image)
+            tensor = self.transform(processed).unsqueeze(0).to(self.device)
+            preds = self.model(tensor)
+            preds = preds.permute(1, 0, 2).argmax(dim=2)[0]
+            decoded_seq = []
+            last_char_idx = 0
+            for char_idx in preds:
+                char_idx = char_idx.item()
+                if char_idx != 0 and char_idx != last_char_idx:
+                    decoded_seq.append(self.int_to_char.get(char_idx, ""))
+                last_char_idx = char_idx
+            text = "".join(decoded_seq)
+            if PLATE_PATTERN.match(text):
+                return text
+        except Exception as e:
+            logger.error(f"CRNN ошибка: {e}")
+        return None
+
+    def read_plate(self, image):
         if image is None or image.size == 0:
             return None
 
-        try:
-            tensor = self.preprocess(image)
-            with torch.no_grad():
-                preds = self.model(tensor)
-            preds = preds.cpu().detach().numpy()
-            text = self.decode(preds[0])
-            if self.is_valid_plate(text):
-                logger.info(f"LPRNet: {text}")
-                return {"text": text, "confidence": 0.9, "engine": "LPRNet"}
-        except Exception as e:
-            logger.error(f"LPRNet ошибка: {e}")
+        text = self._recognize_crnn(image)
+        if text:
+            logger.info(f"CRNN: {text}")
+            return {"text": text, "confidence": 0.95, "engine": "CRNN"}
 
         if self.ocr:
             try:
-                import cv2
                 results = self.ocr.readtext(image)
-                for (_, text, conf) in results:
-                    clean = re.sub(r'[^A-Za-z0-9]', '', text.upper())
-                    if self.is_valid_plate(clean):
+                for (_, ocr_text, conf) in results:
+                    clean = re.sub(r'[^A-Za-z0-9]', "", ocr_text.upper())
+                    if PLATE_PATTERN.match(clean):
                         logger.info(f"EasyOCR: {clean}")
                         return {"text": clean, "confidence": conf, "engine": "EasyOCR"}
             except Exception as e:

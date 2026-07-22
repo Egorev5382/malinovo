@@ -27,8 +27,7 @@ detector:
   device: "cpu"
 
 plate_reader:
-  model_path: "models/LPRNet.pth"
-  max_len: 9
+  model_path: "models/CRNN_int8.pth"
 
 tunnel:
   enabled: false

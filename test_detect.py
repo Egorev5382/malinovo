@@ -3,16 +3,9 @@ import sys
 import cv2
 import torch
 import numpy as np
-import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-CHARS = [
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K",
-    "L", "M", "N", "P", "Q", "R", "S", "T", "U", "V",
-    "W", "X", "Y", "Z", "I", "O", "_"
-]
+from plate_reader import PlateRecognizer
 
 CLASS_NAMES = {0: "plate", 1: "car", 2: "truck", 3: "bus"}
 COLORS = {
@@ -21,80 +14,15 @@ COLORS = {
     "truck": (255, 165, 0),
     "bus": (255, 0, 255),
 }
-PLATE_PATTERN = re.compile(r'^[A-Z]\d{3}[A-Z]{2}\d{2,3}$')
 
 
-class SmallBasicBlock(torch.nn.Module):
-    def __init__(self, ch_in, ch_out):
-        super().__init__()
-        self.block = torch.nn.Sequential(
-            torch.nn.Conv2d(ch_in, ch_out // 4, kernel_size=1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(ch_out // 4, ch_out // 4, kernel_size=(3, 1), padding=(1, 0)),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(ch_out // 4, ch_out // 4, kernel_size=(1, 3), padding=(0, 1)),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(ch_out // 4, ch_out, kernel_size=1),
-        )
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class LPRNet(torch.nn.Module):
-    def __init__(self, lpr_max_len=9, class_num=37, dropout_rate=0):
-        super().__init__()
-        self.lpr_max_len = lpr_max_len
-        self.class_num = class_num
-        self.backbone = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 64, kernel_size=3, stride=1),
-            torch.nn.BatchNorm2d(64),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 1, 1)),
-            SmallBasicBlock(64, 128),
-            torch.nn.BatchNorm2d(128),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(2, 1, 2)),
-            SmallBasicBlock(64, 256),
-            torch.nn.BatchNorm2d(256),
-            torch.nn.ReLU(),
-            SmallBasicBlock(256, 256),
-            torch.nn.BatchNorm2d(256),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(4, 1, 2)),
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.Conv2d(64, 256, kernel_size=(1, 4), stride=1),
-            torch.nn.BatchNorm2d(256),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.Conv2d(256, class_num, kernel_size=(13, 1), stride=1),
-            torch.nn.BatchNorm2d(class_num),
-            torch.nn.ReLU(),
-        )
-        self.container = torch.nn.Sequential(
-            torch.nn.Conv2d(448 + class_num, class_num, kernel_size=(1, 1), stride=(1, 1))
-        )
-
-    def forward(self, x):
-        keep_features = []
-        for i, layer in enumerate(self.backbone.children()):
-            x = layer(x)
-            if i in [2, 6, 13, 22]:
-                keep_features.append(x)
-        global_context = []
-        for i, f in enumerate(keep_features):
-            if i in [0, 1]:
-                f = torch.nn.AvgPool2d(kernel_size=5, stride=5)(f)
-            if i in [2]:
-                f = torch.nn.AvgPool2d(kernel_size=(4, 10), stride=(4, 2))(f)
-            f_pow = torch.pow(f, 2)
-            f_mean = torch.mean(f_pow)
-            f = torch.div(f, f_mean)
-            global_context.append(f)
-        x = torch.cat(global_context, 1)
-        x = self.container(x)
-        logits = torch.mean(x, dim=2)
-        return logits
+def get_recognizer():
+    basedir = os.path.dirname(os.path.abspath(__file__))
+    for name in ["CRNN_int8.pth", "CRNN_fp32.pth"]:
+        p = os.path.join(basedir, "models", name)
+        if os.path.exists(p):
+            return PlateRecognizer(p)
+    return None
 
 
 def load_yolo(model_path):
@@ -108,51 +36,6 @@ def load_yolo(model_path):
     model.to("cpu")
     print("YOLOv5 загружена")
     return model
-
-
-def load_lprnet(model_path):
-    model = LPRNet(lpr_max_len=9, class_num=len(CHARS), dropout_rate=0)
-    model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
-    model.eval()
-    print("LPRNet загружена")
-    return model
-
-
-def decode_plate(preds):
-    label = ""
-    preds_label = []
-    for j in range(preds.shape[1]):
-        preds_label.append(np.argmax(preds[:, j], axis=0))
-    pre_c = preds_label[0]
-    if pre_c != len(CHARS) - 1:
-        label += CHARS[pre_c]
-    for c in preds_label:
-        if (pre_c == c) or (c == len(CHARS) - 1):
-            if c == len(CHARS) - 1:
-                pre_c = c
-            continue
-        label += CHARS[c]
-        pre_c = c
-    return label
-
-
-def read_plate(lprnet, image):
-    try:
-        img = cv2.resize(image, (94, 24))
-        img = img.astype("float32")
-        img -= 127.5
-        img *= 0.0078125
-        img = np.transpose(img, (2, 0, 1))
-        tensor = torch.from_numpy(img).unsqueeze(0)
-        with torch.no_grad():
-            preds = lprnet(tensor)
-        preds = preds.cpu().detach().numpy()
-        text = decode_plate(preds[0])
-        if PLATE_PATTERN.match(text):
-            return text
-    except Exception:
-        pass
-    return None
 
 
 def detect(yolo, frame):
@@ -184,7 +67,7 @@ def box_inside(inner, outer):
             outer[1] <= inner[1] <= inner[3] <= outer[3])
 
 
-def draw_detections(frame, detections, lprnet):
+def draw_detections(frame, detections, recognizer):
     h, w = frame.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = max(0.6, min(w, h) / 1500)
@@ -197,12 +80,13 @@ def draw_detections(frame, detections, lprnet):
         for plate_bbox in detections["plates"]:
             if box_inside(plate_bbox, bbox):
                 plate_crop = frame[plate_bbox[1]:plate_bbox[3], plate_bbox[0]:plate_bbox[2]]
-                plate_text = read_plate(lprnet, plate_crop)
-                if plate_text:
-                    label = f"car {plate_text}"
+                if recognizer:
+                    info = recognizer.read_plate(plate_crop)
+                    if info:
+                        label = f"car {info['text']}"
                 cv2.rectangle(frame, (plate_bbox[0], plate_bbox[1]), (plate_bbox[2], plate_bbox[3]), COLORS["plate"], 2)
                 break
-        cv2.putText(frame, label, (x1, y1 - 8), font, font_scale, COLORS["car"], thickness)
+        cv2.putText(frame, label, (x1, y2 + int(font_scale * 25)), font, font_scale, COLORS["car"], thickness)
 
     for bbox in detections["trucks"]:
         x1, y1, x2, y2 = bbox
@@ -211,12 +95,13 @@ def draw_detections(frame, detections, lprnet):
         for plate_bbox in detections["plates"]:
             if box_inside(plate_bbox, bbox):
                 plate_crop = frame[plate_bbox[1]:plate_bbox[3], plate_bbox[0]:plate_bbox[2]]
-                plate_text = read_plate(lprnet, plate_crop)
-                if plate_text:
-                    label = f"truck {plate_text}"
+                if recognizer:
+                    info = recognizer.read_plate(plate_crop)
+                    if info:
+                        label = f"truck {info['text']}"
                 cv2.rectangle(frame, (plate_bbox[0], plate_bbox[1]), (plate_bbox[2], plate_bbox[3]), COLORS["plate"], 2)
                 break
-        cv2.putText(frame, label, (x1, y1 - 8), font, font_scale, COLORS["truck"], thickness)
+        cv2.putText(frame, label, (x1, y2 + int(font_scale * 25)), font, font_scale, COLORS["truck"], thickness)
 
     for bbox in detections["buses"]:
         x1, y1, x2, y2 = bbox
@@ -225,12 +110,13 @@ def draw_detections(frame, detections, lprnet):
         for plate_bbox in detections["plates"]:
             if box_inside(plate_bbox, bbox):
                 plate_crop = frame[plate_bbox[1]:plate_bbox[3], plate_bbox[0]:plate_bbox[2]]
-                plate_text = read_plate(lprnet, plate_crop)
-                if plate_text:
-                    label = f"bus {plate_text}"
+                if recognizer:
+                    info = recognizer.read_plate(plate_crop)
+                    if info:
+                        label = f"bus {info['text']}"
                 cv2.rectangle(frame, (plate_bbox[0], plate_bbox[1]), (plate_bbox[2], plate_bbox[3]), COLORS["plate"], 2)
                 break
-        cv2.putText(frame, label, (x1, y1 - 8), font, font_scale, COLORS["bus"], thickness)
+        cv2.putText(frame, label, (x1, y2 + int(font_scale * 25)), font, font_scale, COLORS["bus"], thickness)
 
     matched_plate_bboxes = set()
     for d in [detections["cars"], detections["trucks"], detections["buses"]]:
@@ -245,11 +131,12 @@ def draw_detections(frame, detections, lprnet):
         x1, y1, x2, y2 = plate_bbox
         cv2.rectangle(frame, (x1, y1), (x2, y2), COLORS["plate"], 2)
         plate_crop = frame[y1:y2, x1:x2]
-        plate_text = read_plate(lprnet, plate_crop)
-        if plate_text:
-            cv2.putText(frame, plate_text, (x1, y1 - 8), font, font_scale, COLORS["plate"], thickness)
-        else:
-            cv2.putText(frame, "plate?", (x1, y1 - 8), font, font_scale, (0, 0, 255), thickness)
+        label = "plate?"
+        if recognizer:
+            info = recognizer.read_plate(plate_crop)
+            if info:
+                label = info["text"]
+        cv2.putText(frame, label, (x1, y2 + int(font_scale * 25)), font, font_scale, COLORS["plate"], thickness)
 
     return frame
 
@@ -265,17 +152,17 @@ def main():
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     yolo_path = os.path.join(base_dir, "models", "YOLOS_cars.pt")
-    lprnet_path = os.path.join(base_dir, "models", "LPRNet.pth")
 
     if not os.path.exists(yolo_path):
         print(f"YOLO модель не найдена: {yolo_path}")
         return
-    if not os.path.exists(lprnet_path):
-        print(f"LPRNet модель не найдена: {lprnet_path}")
-        return
 
     yolo = load_yolo(yolo_path)
-    lprnet = load_lprnet(lprnet_path)
+    recognizer = get_recognizer()
+    if recognizer:
+        print("CRNN загружена")
+    else:
+        print("CRNN не найдена — работа без распознавания номеров")
 
     if args.image:
         frame = cv2.imread(args.image)
@@ -286,7 +173,7 @@ def main():
         detections = detect(yolo, frame)
         total = len(detections["plates"]) + len(detections["cars"]) + len(detections["trucks"]) + len(detections["buses"])
         print(f"Найдено: {total} (plates={len(detections['plates'])}, cars={len(detections['cars'])}, trucks={len(detections['trucks'])}, buses={len(detections['buses'])})")
-        result = draw_detections(frame, detections, lprnet)
+        result = draw_detections(frame, detections, recognizer)
         if args.output:
             cv2.imwrite(args.output, result)
             print(f"Сохранено: {args.output}")
@@ -320,7 +207,7 @@ def main():
                     break
                 continue
             detections = detect(yolo, frame)
-            result = draw_detections(frame, detections, lprnet)
+            result = draw_detections(frame, detections, recognizer)
             cv2.imshow("Gate Control - Detection", result)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
