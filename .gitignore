@@ -11,3 +11,5 @@ models/yolov5/
 startup_photo.jpg
 result.jpg
 snap_*.jpg
+test_photos/
+*.png

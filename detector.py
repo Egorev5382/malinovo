@@ -30,6 +30,16 @@ class CarDetector:
                 local_yolo_dir
             ], check=True)
 
+        exp_path = os.path.join(local_yolo_dir, "models", "experimental.py")
+        if os.path.exists(exp_path):
+            with open(exp_path, "r") as f:
+                content = f.read()
+            old = "ckpt = torch.load(attempt_download(w), map_location='cpu')  # load"
+            new = "ckpt = torch.load(attempt_download(w), map_location='cpu', weights_only=False)  # load"
+            if old in content:
+                with open(exp_path, "w") as f:
+                    f.write(content.replace(old, new))
+                logger.info("YOLOv5 experimental.py patched for PyTorch 2.13+")
         self.model = torch.hub.load(local_yolo_dir, "custom", path=model_path, source="local", trust_repo=True)
         self.model.conf = conf
         self.model.iou = iou
