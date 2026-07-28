@@ -56,13 +56,30 @@ class PlateRecognizer:
         self.int_to_char[0] = ""
 
         if os.path.exists(model_path):
-            model_fp32 = CRNN(num_classes).eval()
-            qconfig_mapping = QConfigMapping().set_global(torch.ao.quantization.get_default_qconfig("fbgemm"))
-            example_inputs = (torch.randn(1, 1, 32, 128),)
-            model_prepared = quantize_fx.prepare_fx(model_fp32, qconfig_mapping, example_inputs)
-            self.model = quantize_fx.convert_fx(model_prepared)
-            self.model.load_state_dict(torch.load(model_path, map_location="cpu"))
-            logger.info(f"CRNN загружена: {model_path}")
+            is_int8 = "int8" in model_path or "quant" in model_path
+            if is_int8:
+                try:
+                    torch.backends.quantized.engine = "qnnpack"
+                    model_fp32 = CRNN(num_classes).eval()
+                    qconfig_mapping = QConfigMapping().set_global(torch.ao.quantization.get_default_qconfig("qnnpack"))
+                    example_inputs = (torch.randn(1, 1, 32, 128),)
+                    model_prepared = quantize_fx.prepare_fx(model_fp32, qconfig_mapping, example_inputs)
+                    self.model = quantize_fx.convert_fx(model_prepared)
+                    self.model.load_state_dict(torch.load(model_path, map_location="cpu"))
+                    logger.info(f"CRNN INT8 загружена: {model_path}")
+                except Exception as e:
+                    logger.warning(f"INT8 загрузка не удалась ({e}), пробую FP32...")
+                    self.model = CRNN(num_classes).eval()
+                    fp32_path = model_path.replace("_int8", "_fp32")
+                    if os.path.exists(fp32_path):
+                        self.model.load_state_dict(torch.load(fp32_path, map_location="cpu", weights_only=True))
+                        logger.info(f"CRNN FP32 загружена (fallback): {fp32_path}")
+                    else:
+                        raise
+            else:
+                self.model = CRNN(num_classes).eval()
+                self.model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
+                logger.info(f"CRNN FP32 загружена: {model_path}")
         else:
             logger.error(f"CRNN веса не найдены: {model_path}")
             raise FileNotFoundError(f"КРНН модель не найдена: {model_path}")
