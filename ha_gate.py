@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 import requests
 
@@ -33,12 +32,10 @@ class HAGate:
         return ok
 
     def open_gate(self):
-        if not self._call_ha("turn_on"):
-            return False
-        time.sleep(0.3)
-        self._call_ha("turn_off")
-        logger.info(f"Импульс открытия ворот: {self.entity_id}")
-        return True
+        ok = self._call_ha("turn_on")
+        if ok:
+            logger.info(f"Ворота открыты: {self.entity_id}")
+        return ok
 
     def publish_plate(self, plate: str, allowed: bool, gate_opened: bool):
         logger.info(f"HA статус: номер={plate} разрешён={allowed} ворота={gate_opened}")
