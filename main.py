@@ -62,24 +62,45 @@ def main():
     )
     gate.connect()
 
+    host_ip = None
     try:
-        import subprocess
-        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3)
-        all_ips = out.stdout.strip().split()
-        container_ip = all_ips[0] if all_ips else "0.0.0.0"
-        # try to get host IP via gateway or host.docker.internal
-        try:
-            host_ip = socket.gethostbyname("host.docker.internal")
-        except:
-            host_ip = None
+        import subprocess, json, urllib.request
+        # 1) HA supervisor API
+        token = os.environ.get("SUPERVISOR_TOKEN")
+        if token:
+            req = urllib.request.Request("http://supervisor/network/info")
+            req.add_header("Authorization", f"Bearer {token}")
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read())
+            for iface in data.get("data", {}).get("interfaces", []):
+                for addr in iface.get("ipv4", {}).get("address", []):
+                    ip = addr.split("/")[0]
+                    if ip.startswith("192.168.") or ip.startswith("10."):
+                        host_ip = ip
+                        break
+                if host_ip:
+                    break
+        # 2) host.docker.internal
+        if not host_ip:
+            try:
+                host_ip = socket.gethostbyname("host.docker.internal")
+            except:
+                pass
+        # 3) gateway IP
+        if not host_ip:
+            out = subprocess.run(["ip", "route"], capture_output=True, text=True, timeout=3)
+            for line in out.stdout.splitlines():
+                if "default via" in line:
+                    host_ip = line.split()[2]
+                    break
+        # 4) container IP as fallback
+        if not host_ip:
+            out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3)
+            host_ip = out.stdout.strip().split()[0] if out.stdout.strip() else "0.0.0.0"
     except:
-        container_ip = "0.0.0.0"
-        host_ip = None
+        host_ip = "0.0.0.0"
     port = config["web"]["port"]
-    if host_ip:
-        logger.info(f"=== Веб-интерфейс: http://{host_ip}:{port} ===")
-    else:
-        logger.info(f"=== Веб-интерфейс: http://{container_ip}:{port} (локально) | npx localtunnel --port {port} (с WiFi) ===")
+    logger.info(f"=== Веб-интерфейс: http://{host_ip}:{port} ===")
 
     interval = config["camera"]["capture_interval"]
     gate_cooldown = config["gate"]["open_duration"]
