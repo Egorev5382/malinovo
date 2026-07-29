@@ -62,13 +62,12 @@ def main():
     )
     gate.connect()
 
-    hostname = socket.gethostname()
     try:
-        local_ip = socket.gethostbyname(hostname)
+        container_ip = socket.gethostbyname(socket.gethostname())
     except:
-        local_ip = "0.0.0.0"
+        container_ip = "0.0.0.0"
     port = config["web"]["port"]
-    logger.info(f"=== Веб-интерфейс: http://{local_ip}:{port} ===")
+    logger.info(f"=== Веб-интерфейс: http://{container_ip}:{port} (с WiFi: npx localtunnel --port {port}) ===")
 
     interval = config["camera"]["capture_interval"]
     gate_cooldown = config["gate"]["open_duration"]
