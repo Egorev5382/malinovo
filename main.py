@@ -63,11 +63,23 @@ def main():
     gate.connect()
 
     try:
-        container_ip = socket.gethostbyname(socket.gethostname())
+        import subprocess
+        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3)
+        all_ips = out.stdout.strip().split()
+        container_ip = all_ips[0] if all_ips else "0.0.0.0"
+        # try to get host IP via gateway or host.docker.internal
+        try:
+            host_ip = socket.gethostbyname("host.docker.internal")
+        except:
+            host_ip = None
     except:
         container_ip = "0.0.0.0"
+        host_ip = None
     port = config["web"]["port"]
-    logger.info(f"=== Веб-интерфейс: http://{container_ip}:{port} (с WiFi: npx localtunnel --port {port}) ===")
+    if host_ip:
+        logger.info(f"=== Веб-интерфейс: http://{host_ip}:{port} ===")
+    else:
+        logger.info(f"=== Веб-интерфейс: http://{container_ip}:{port} (локально) | npx localtunnel --port {port} (с WiFi) ===")
 
     interval = config["camera"]["capture_interval"]
     gate_cooldown = config["gate"]["open_duration"]
