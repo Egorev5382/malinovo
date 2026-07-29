@@ -178,20 +178,28 @@ def api_remove_plate():
 @app.route("/api/gate/open", methods=["POST"])
 @login_required
 def api_open_gate():
-    from mqtt_gate import MQTTGate
     config = load_config()
-    gate = MQTTGate(
-        broker=config["mqtt"]["broker"],
-        port=config["mqtt"]["port"],
-        topic=config["mqtt"]["topic"],
-        username=config["mqtt"].get("username", ""),
-        password=config["mqtt"].get("password", "")
-    )
-    gate.connect()
-    import time
-    time.sleep(0.5)
-    result = gate.open_gate()
-    gate.disconnect()
+    use_ha = config.get("gate", {}).get("use_ha", False)
+    if use_ha and os.environ.get("SUPERVISOR_TOKEN"):
+        from ha_gate import HAGate
+        gate = HAGate(entity_id=config.get("homeassistant", {}).get("entity_id", "switch.vorota"))
+        gate.connect()
+        result = gate.open_gate()
+        gate.disconnect()
+    else:
+        from mqtt_gate import MQTTGate
+        gate = MQTTGate(
+            broker=config["mqtt"]["broker"],
+            port=config["mqtt"]["port"],
+            topic=config["mqtt"]["topic"],
+            username=config["mqtt"].get("username", ""),
+            password=config["mqtt"].get("password", "")
+        )
+        gate.connect()
+        import time
+        time.sleep(0.5)
+        result = gate.open_gate()
+        gate.disconnect()
     return jsonify({"success": result})
 
 

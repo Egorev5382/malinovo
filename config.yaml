@@ -2,15 +2,19 @@ camera:
   rtsp_url: "rtsp://admin:Qwe123654@@192.168.1.77:554/11"
   capture_interval: 5
 
+gate:
+  open_cooldown: 60
+  use_ha: true
+
+homeassistant:
+  entity_id: "switch.vorota"
+
 mqtt:
   broker: "127.0.0.1"
   port: 1883
   topic: "gate/open"
   username: ""
   password: ""
-
-gate:
-  open_duration: 5
 
 database:
   path: "gate_system.db"

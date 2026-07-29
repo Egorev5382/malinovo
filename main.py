@@ -53,13 +53,18 @@ def main():
         photos_dir=BASE_DIR
     )
 
-    gate = MQTTGate(
-        broker=config["mqtt"]["broker"],
-        port=config["mqtt"]["port"],
-        topic=config["mqtt"]["topic"],
-        username=config["mqtt"].get("username", ""),
-        password=config["mqtt"].get("password", "")
-    )
+    use_ha = config.get("gate", {}).get("use_ha", False)
+    if use_ha and os.environ.get("SUPERVISOR_TOKEN"):
+        from ha_gate import HAGate
+        gate = HAGate(entity_id=config.get("homeassistant", {}).get("entity_id", "switch.vorota"))
+    else:
+        gate = MQTTGate(
+            broker=config["mqtt"]["broker"],
+            port=config["mqtt"]["port"],
+            topic=config["mqtt"]["topic"],
+            username=config["mqtt"].get("username", ""),
+            password=config["mqtt"].get("password", "")
+        )
     gate.connect()
 
     host_ip = None
@@ -103,7 +108,7 @@ def main():
     logger.info(f"=== Веб-интерфейс: http://{host_ip}:{port} ===")
 
     interval = config["camera"]["capture_interval"]
-    gate_cooldown = config["gate"]["open_duration"]
+    gate_cooldown = config["gate"]["open_cooldown"]
     last_gate_time = 0
     empty_frame_counter = 0
     empty_frame_interval = 5
