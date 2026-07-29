@@ -180,9 +180,14 @@ def api_remove_plate():
 def api_open_gate():
     config = load_config()
     use_ha = config.get("gate", {}).get("use_ha", False)
-    if use_ha and os.environ.get("SUPERVISOR_TOKEN"):
+    if use_ha:
         from ha_gate import HAGate
-        gate = HAGate(entity_id=config.get("homeassistant", {}).get("entity_id", "switch.vorota"))
+        ha_cfg = config.get("homeassistant", {})
+        gate = HAGate(
+            entity_id=ha_cfg.get("entity_id", "switch.vykliuchatel_vorota_2"),
+            ha_url=ha_cfg.get("ha_url") or None,
+            ha_token=ha_cfg.get("ha_token") or None
+        )
         gate.connect()
         result = gate.open_gate()
         gate.disconnect()
