@@ -11,7 +11,7 @@ class HAGate:
     def __init__(self, entity_id: str, ha_url: str = None, ha_token: str = None):
         self.entity_id = entity_id
         self.ha_url = ha_url or "http://supervisor/core"
-        self.token = ha_token or os.environ.get("SUPERVISOR_TOKEN")
+        self.token = ha_token or os.environ.get("HA_TOKEN") or os.environ.get("SUPERVISOR_TOKEN")
         if not self.token:
             logger.warning("HA токен не найден — HA API недоступен")
 

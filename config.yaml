@@ -7,7 +7,7 @@ gate:
   use_ha: true
 
 homeassistant:
-  entity_id: "switch.vykliuchatel_vorota_2"
+  entity_id: "switch.vorota"
   ha_url: "http://supervisor/core"
   ha_token: ""
 
