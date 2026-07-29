@@ -68,10 +68,6 @@ def logout():
 @app.route("/")
 @login_required
 def logs():
-    flag_file = os.path.join(BASE_DIR, "system_started")
-    startup_photo = os.path.join(BASE_DIR, "startup_photo.jpg")
-    if os.path.exists(startup_photo) and not os.path.exists(flag_file):
-        return redirect(url_for("startup"))
     page = request.args.get("page", 1, type=int)
     per_page = 20
     offset = (page - 1) * per_page

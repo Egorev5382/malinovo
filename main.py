@@ -3,6 +3,7 @@ import time
 import yaml
 import logging
 import datetime
+import socket
 import cv2
 from camera import Camera
 from detector import CarDetector
@@ -61,29 +62,13 @@ def main():
     )
     gate.connect()
 
-    flag_file = os.path.join(BASE_DIR, "system_started")
-    startup_photo = os.path.join(BASE_DIR, "startup_photo.jpg")
-
-    if os.path.exists(flag_file):
-        os.remove(flag_file)
-
-    logger.info("Захват тестового кадра...")
-    time.sleep(2)
-    test_frame = camera.get_frame()
-    if test_frame is not None:
-        cv2.imwrite(startup_photo, test_frame)
-        logger.info(f"Тестовый кадр сохранён: {startup_photo}")
-    else:
-        logger.warning("Не удалось получить кадр с камеры")
-
-    logger.info("=== Ожидание подтверждения на http://localhost:8080/startup ===")
-    while not os.path.exists(flag_file):
-        time.sleep(1)
-
-    if os.path.exists(flag_file):
-        os.remove(flag_file)
-
-    logger.info("Подтверждено! Запуск детекции...")
+    hostname = socket.gethostname()
+    try:
+        local_ip = socket.gethostbyname(hostname)
+    except:
+        local_ip = "0.0.0.0"
+    port = config["web"]["port"]
+    logger.info(f"=== Веб-интерфейс: http://{local_ip}:{port} ===")
 
     interval = config["camera"]["capture_interval"]
     gate_cooldown = config["gate"]["open_duration"]
