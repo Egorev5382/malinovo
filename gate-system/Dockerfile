@@ -9,7 +9,9 @@ WORKDIR /app
 RUN git clone --depth 1 https://github.com/Egorev5382/malinovo.git /app
 
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r requirements.txt tqdm
+    && pip install --no-cache-dir \
+    opencv-python-headless SQLAlchemy Flask PyYAML Pillow numpy requests \
+    pandas matplotlib seaborn tqdm easyocr ultralytics paho-mqtt
 
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
