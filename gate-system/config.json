@@ -1,6 +1,6 @@
 {
   "name": "Gate System",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "slug": "gate-system",
   "description": "Raspoznavanie nomerov i otkrytie vorot",
   "arch": ["aarch64"],
