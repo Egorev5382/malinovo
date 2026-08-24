@@ -9,7 +9,10 @@ class HAGate:
     def __init__(self, entity_id: str, ha_url: str = None, ha_token: str = None):
         self.entity_id = entity_id
         self.ha_url = (ha_url or "http://supervisor/core").rstrip("/")
-        token = ha_token or os.environ.get("HA_TOKEN") or os.environ.get("SUPERVISOR_TOKEN") or ""
+        if "supervisor" in self.ha_url:
+            token = os.environ.get("SUPERVISOR_TOKEN") or ha_token or ""
+        else:
+            token = ha_token or os.environ.get("HA_TOKEN") or ""
         self.headers = {"Authorization": f"Bearer {token.strip()}", "Content-Type": "application/json"}
         if not token.strip():
             logger.warning("HA токен не найден — HA API недоступен")

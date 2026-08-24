@@ -1,0 +1,16 @@
+{
+  "name": "Gate System",
+  "version": "1.0.0",
+  "slug": "gate-system",
+  "description": "Распознавание автомобильных номеров и открытие ворот через Home Assistant",
+  "arch": ["aarch64"],
+  "startup": "application",
+  "boot": "auto",
+  "ports": {
+    "8080/tcp": 8080
+  },
+  "map": ["share:rw"],
+  "watchdog": "[![OK](http://localhost:8080/login)](http://localhost:8080/login)",
+  "panel_icon": "mdi:car",
+  "panel_title": "Ворота"
+}
