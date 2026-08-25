@@ -1,5 +1,6 @@
 import os
 import cv2
+import difflib
 import datetime
 import logging
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean
@@ -74,8 +75,16 @@ class Database:
     def is_allowed(self, plate: str) -> bool:
         session = self.Session()
         try:
-            result = session.query(AllowedPlate).filter_by(plate=plate).first()
-            return result is not None
+            if session.query(AllowedPlate).filter_by(plate=plate).first() is not None:
+                return True
+            plates = [p.plate for p in session.query(AllowedPlate).all()]
+            close = difflib.get_close_matches(plate, plates, n=1, cutoff=0.87)
+            if close:
+                logger.warning(
+                    f"Номер {plate} распознан неточно — "
+                    f"принят как {close[0]} из базы")
+                return True
+            return False
         finally:
             session.close()
 
