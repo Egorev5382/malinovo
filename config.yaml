@@ -1,6 +1,6 @@
 camera:
   rtsp_url: "rtsp://admin:Qwe123654@@192.168.1.77:554/11"
-  capture_interval: 5
+  capture_interval: 3
 
 gate:
   open_cooldown: 60
