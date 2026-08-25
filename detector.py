@@ -13,6 +13,7 @@ COCO_VEHICLE_CLASSES = {2: "car", 5: "bus", 7: "truck"}
 class CarDetector:
     def __init__(self, model_path: str, conf: float = 0.5, iou: float = 0.4, device: str = "cpu"):
         self.conf = conf
+        self.det_conf = min(conf, 0.3)
         self.iou = iou
         self.device = device
         logger.info(f"Загрузка YOLOv5 модели: {model_path}")
@@ -57,7 +58,7 @@ class CarDetector:
     def detect(self, frame: np.ndarray) -> dict:
         output = {"plates": [], "cars": [], "trucks": [], "buses": []}
 
-        self.model.conf = self.conf
+        self.model.conf = self.det_conf
         self.model.iou = self.iou
         results = self.model([frame])
         labels = results.xyxyn[0][:, -1].cpu().numpy()

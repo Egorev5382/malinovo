@@ -143,6 +143,17 @@ def photos(filename):
     return send_from_directory(os.path.join(DATA_DIR, "photos"), filename)
 
 
+@app.route("/debug.jpg")
+@login_required
+def debug_frame():
+    path = os.path.join(DATA_DIR, "debug_frame.jpg")
+    if not os.path.exists(path):
+        return "Отладочный кадр ещё не сохранён", 404
+    resp = send_from_directory(DATA_DIR, "debug_frame.jpg")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.route("/api/logs")
 @login_required
 def api_logs():

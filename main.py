@@ -119,6 +119,7 @@ def main():
     interval = config["camera"]["capture_interval"]
     gate_cooldown = config["gate"]["open_cooldown"]
     last_gate_time = 0
+    last_debug_save = 0.0
     empty_frame_counter = 0
     empty_frame_interval = 5
 
@@ -138,6 +139,23 @@ def main():
             total = len(detections["plates"]) + len(detections["cars"]) + len(detections["trucks"]) + len(detections["buses"])
             logger.info(f"Детекция: {total} объектов (plates={len(detections['plates'])}, cars={len(detections['cars'])})")
             matched = detector.match_plates_to_vehicles(detections)
+
+            if time.time() - last_debug_save > 15:
+                last_debug_save = time.time()
+                try:
+                    dbg = frame.copy()
+                    for b in detections["cars"]:
+                        cv2.rectangle(dbg, (b[0], b[1]), (b[2], b[3]), (0, 255, 0), 4)
+                    for b in detections["trucks"]:
+                        cv2.rectangle(dbg, (b[0], b[1]), (b[2], b[3]), (0, 165, 255), 4)
+                    for b in detections["buses"]:
+                        cv2.rectangle(dbg, (b[0], b[1]), (b[2], b[3]), (255, 0, 255), 4)
+                    for b in detections["plates"]:
+                        cv2.rectangle(dbg, (b[0], b[1]), (b[2], b[3]), (0, 0, 255), 4)
+                    debug_path = os.path.join(data_dir, "debug_frame.jpg")
+                    cv2.imwrite(debug_path, dbg)
+                except Exception as e:
+                    logger.warning(f"Не удалось сохранить отладочный кадр: {e}")
 
             if matched:
                 logger.info(f"Найдено транспортных средств: {len(matched)}")
