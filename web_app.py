@@ -7,6 +7,7 @@ import logging
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, send_from_directory, jsonify, session)
 from database import Database
+from data_dir import get_data_dir, resolve_db_path, migrate_old_data
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,10 @@ def load_config(path=None):
 
 
 _config = load_config()
-db = Database(db_path=_config["database"]["path"],
-              photos_dir=os.path.join(BASE_DIR, "photos"))
+DATA_DIR = get_data_dir()
+migrate_old_data(DATA_DIR)
+db = Database(db_path=resolve_db_path(_config["database"]["path"], DATA_DIR),
+              photos_dir=os.path.join(DATA_DIR, "photos"))
 
 
 def login_required(f):
@@ -136,8 +139,8 @@ def view_entry(log_id):
 
 @app.route("/photos/<path:filename>")
 @login_required
-def serve_photo(filename):
-    return send_from_directory(os.path.join(BASE_DIR, "photos"), filename)
+def photos(filename):
+    return send_from_directory(os.path.join(DATA_DIR, "photos"), filename)
 
 
 @app.route("/api/logs")
@@ -244,13 +247,12 @@ def serve_snapshot(filename):
 
 
 if __name__ == "__main__":
-    config = load_config()
     db = Database(
-        db_path=config["database"]["path"],
-        photos_dir=os.path.join(BASE_DIR, "photos")
+        db_path=resolve_db_path(load_config()["database"]["path"], DATA_DIR),
+        photos_dir=os.path.join(DATA_DIR, "photos")
     )
     app.run(
-        host=config["web"]["host"],
-        port=config["web"]["port"],
+        host=load_config()["web"]["host"],
+        port=load_config()["web"]["port"],
         debug=False
     )

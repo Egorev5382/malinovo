@@ -10,6 +10,7 @@ from detector import CarDetector
 from plate_reader import PlateRecognizer
 from database import Database
 from mqtt_gate import MQTTGate
+from data_dir import get_data_dir, resolve_db_path, migrate_old_data
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +32,10 @@ def load_config(path="config.yaml"):
 
 def main():
     config = load_config()
+    data_dir = get_data_dir()
+    migrate_old_data(data_dir)
     logger.info("=== Система контроля въезда запущена ===")
+    logger.info(f"Хранилище данных: {data_dir}")
 
     camera = Camera(config["camera"]["rtsp_url"])
 
@@ -49,8 +53,8 @@ def main():
     )
 
     db = Database(
-        db_path=config["database"]["path"],
-        photos_dir=BASE_DIR
+        db_path=resolve_db_path(config["database"]["path"], data_dir),
+        photos_dir=os.path.join(data_dir, "photos")
     )
 
     use_ha = config.get("gate", {}).get("use_ha", False)
