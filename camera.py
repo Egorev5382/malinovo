@@ -11,16 +11,15 @@ os.environ.setdefault(
     "rtsp_transport;tcp|buffer_size;512|max_delay;500000|timeout;5000000"
 )
 
-STALE_HASH_REPEATS = 2
+STALE_HASH_REPEATS = 3
 MAX_CONNECTION_AGE_SEC = 300
-FREEZE_DIFF_THRESHOLD = 2.5
 
 
 class Camera:
     def __init__(self, rtsp_url: str):
         self.rtsp_url = rtsp_url
         self.cap = None
-        self._last_small = None
+        self._last_bytes = None
         self._stale_count = 0
         self._connected_at = 0.0
 
@@ -37,25 +36,22 @@ class Camera:
             pass
         self._connected_at = time.monotonic()
         self._stale_count = 0
-        self._last_small = None
+        self._last_bytes = None
         logger.info(f"Подключено к камере: {self.rtsp_url}")
         return True
 
     @staticmethod
-    def _downscale(frame) -> np.ndarray:
-        return cv2.resize(frame, (32, 18)).astype(np.float32)
+    def _frame_signature(frame) -> bytes:
+        small = cv2.resize(frame, (64, 36))
+        return small.tobytes()
 
     def _is_frozen(self, frame) -> bool:
-        small = self._downscale(frame)
-        if self._last_small is not None:
-            diff = float(np.mean(np.abs(small - self._last_small)))
-            if diff < FREEZE_DIFF_THRESHOLD:
-                self._stale_count += 1
-            else:
-                self._stale_count = 0
+        sig = self._frame_signature(frame)
+        if sig == self._last_bytes:
+            self._stale_count += 1
         else:
             self._stale_count = 0
-        self._last_small = small
+            self._last_bytes = sig
         return self._stale_count >= STALE_HASH_REPEATS
 
     def _reconnect(self, reason: str):
@@ -83,7 +79,7 @@ class Camera:
             return frame
 
         if self._is_frozen(frame):
-            self._reconnect(f"Поток замер ({self._stale_count} кадров без изменений)")
+            self._reconnect(f"Поток замер ({self._stale_count} идентичных кадров)")
             ret, frame = self.cap.read()
             if not ret:
                 return None

@@ -123,6 +123,10 @@ def main():
     empty_frame_counter = 0
     empty_frame_interval = 5
 
+    opened_plates = set()
+    presence = {}
+    PRESENCE_RESET_SEC = 90
+
     logger.info(f"Интервал захвата: {interval} сек")
     logger.info("Ожидание транспорта...")
 
@@ -185,11 +189,17 @@ def main():
 
                     gate_opened = False
                     current_time = time.time()
-                    if is_allowed and (current_time - last_gate_time) > gate_cooldown:
+                    if (current_time - presence.get(plate_text, 0)) > PRESENCE_RESET_SEC:
+                        opened_plates.discard(plate_text)
+                    presence[plate_text] = current_time
+
+                    if is_allowed and plate_text not in opened_plates \
+                            and (current_time - last_gate_time) > gate_cooldown:
                         if gate.open_gate():
                             gate_opened = True
                             last_gate_time = current_time
-                            logger.info(f"Ворота открыты для {plate_text}")
+                            opened_plates.add(plate_text)
+                            logger.info(f"Ворота открыты для {plate_text} (один сигнал за въезд)")
                         else:
                             logger.error(f"Не удалось открыть ворота для {plate_text}")
                     elif not is_allowed:
@@ -230,11 +240,17 @@ def main():
 
                 gate_opened = False
                 current_time = time.time()
-                if is_allowed and (current_time - last_gate_time) > gate_cooldown:
+                if (current_time - presence.get(plate_text, 0)) > PRESENCE_RESET_SEC:
+                    opened_plates.discard(plate_text)
+                presence[plate_text] = current_time
+
+                if is_allowed and plate_text not in opened_plates \
+                        and (current_time - last_gate_time) > gate_cooldown:
                     if gate.open_gate():
                         gate_opened = True
                         last_gate_time = current_time
-                        logger.info(f"Ворота открыты для {plate_text}")
+                        opened_plates.add(plate_text)
+                        logger.info(f"Ворота открыты для {plate_text} (один сигнал за въезд)")
                     else:
                         logger.error(f"Не удалось открыть ворота для {plate_text}")
                 elif not is_allowed:
