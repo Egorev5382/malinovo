@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 RECONNECT_SEC = 60
 STALE_TIMEOUT_SEC = 6
-KNOWN_RESOLUTIONS = [(2880, 1616), (1920, 1080), (1280, 720), (640, 480)]
+OUT_W, OUT_H = 1280, 720
 
 
 class Camera:
@@ -30,16 +30,16 @@ class Camera:
     def _start_ffmpeg(self):
         cmd = [
             "ffmpeg",
-            "-hide_banner", "-loglevel", "error",
+            "-hide_banner", "-loglevel", "warning",
             "-rtsp_transport", "tcp",
             "-fflags", "nobuffer",
             "-flags", "low_delay",
             "-analyzeduration", "1000000",
             "-probesize", "1000000",
             "-i", self.rtsp_url,
+            "-vf", f"fps=5,scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=decrease,pad={OUT_W}:{OUT_H}:(ow-iw)/2:(oh-ih)/2",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
-            "-r", "5",
             "-an",
             "-"
         ]
@@ -47,42 +47,33 @@ class Camera:
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            bufsize=0
+            bufsize=OUT_W * OUT_H * 3 * 2
         )
 
     def _capture_loop(self):
         proc = self._start_ffmpeg()
         connected_at = time.monotonic()
-        logger.info(f"FFmpeg запущен: {self.rtsp_url}")
-
-        width, height = None, None
-        frame_size = None
+        frame_size = OUT_W * OUT_H * 3
 
         deadline = time.monotonic() + 8
         buf = b""
         while not self._stop and time.monotonic() < deadline:
             if proc.poll() is not None:
-                err = proc.stderr.read().decode(errors="replace")[:200]
+                err = proc.stderr.read().decode(errors="replace")[:300]
                 logger.error(f"FFmpeg завершился (код {proc.returncode}): {err}")
                 time.sleep(1)
                 return
-            chunk = proc.stdout.read(1920 * 1080 * 3)
+            chunk = proc.stdout.read(frame_size * 2)
             if not chunk:
                 time.sleep(0.1)
                 continue
             buf += chunk
-            for w, h in KNOWN_RESOLUTIONS:
-                need = w * h * 3
-                if len(buf) >= need:
-                    width, height = w, h
-                    frame_size = need
-                    break
-            if width:
+            if len(buf) >= frame_size:
                 break
 
-        if not width:
+        if len(buf) < frame_size:
             err = proc.stderr.read().decode(errors="replace")[:300] if proc.stderr else ""
-            logger.error(f"Не удалось определить разрешение камеры: {err}")
+            logger.error(f"Не удалось получить кадр от ffmpeg: {err}")
             try:
                 proc.terminate()
                 proc.wait(timeout=3)
@@ -91,13 +82,11 @@ class Camera:
             time.sleep(1)
             return
 
-        logger.info(f"Камера: {width}x{height}")
-
-        if len(buf) >= frame_size:
-            first_frame = np.frombuffer(buf[:frame_size], dtype=np.uint8).reshape((height, width, 3))
-            with self._lock:
-                self._frame = first_frame
-                self._capture_time = time.monotonic()
+        logger.info(f"Камера: {OUT_W}x{OUT_H}")
+        first_frame = np.frombuffer(buf[:frame_size], dtype=np.uint8).reshape((OUT_H, OUT_W, 3))
+        with self._lock:
+            self._frame = first_frame
+            self._capture_time = time.monotonic()
 
         while not self._stop:
             if time.monotonic() - connected_at > RECONNECT_SEC:
@@ -111,7 +100,7 @@ class Camera:
                 else:
                     logger.warning("Неполный кадр — переподключение")
                 break
-            frame = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 3))
+            frame = np.frombuffer(raw, dtype=np.uint8).reshape((OUT_H, OUT_W, 3))
             with self._lock:
                 self._frame = frame
                 self._capture_time = time.monotonic()
