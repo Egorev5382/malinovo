@@ -1,5 +1,6 @@
 import os
 import torch
+import cv2
 import numpy as np
 import logging
 
@@ -80,6 +81,27 @@ class CarDetector:
                 output["trucks"].append((x1, y1, x2, y2))
             elif cls == 3:
                 output["buses"].append((x1, y1, x2, y2))
+
+        if not output["plates"]:
+            try:
+                small = cv2.resize(frame, (w // 2, h // 2))
+                r2 = self.model([small])
+                labels2 = r2.xyxyn[0][:, -1].cpu().numpy()
+                cords2 = r2.xyxyn[0][:, :-1].cpu().numpy()
+                found_small = False
+                for i in range(len(labels2)):
+                    row = cords2[i]
+                    x1, y1, x2, y2 = (
+                        int(row[0] * w), int(row[1] * h),
+                        int(row[2] * w), int(row[3] * h)
+                    )
+                    if int(labels2[i]) == 0:
+                        output["plates"].append((x1, y1, x2, y2))
+                        found_small = True
+                if found_small:
+                    logger.info("Номер найден на уменьшенном кадре (крупный план)")
+            except Exception as e:
+                logger.warning(f"Второй проход детекции: {e}")
 
         if self.yolov8:
             try:
