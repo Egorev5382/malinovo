@@ -125,30 +125,66 @@ class PlateRecognizer:
         if not contours:
             return plate_image
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
-        for contour in contours:
+        for contour in contours[:5]:
+            x, y, w, h = cv2.boundingRect(contour)
+            if h == 0 or w / float(h) < 1.5:
+                continue
             peri = cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
             if len(approx) == 4:
-                return self._four_point_transform(plate_image, approx.reshape(4, 2))
+                warped = self._four_point_transform(plate_image, approx.reshape(4, 2))
+                wh, ww = warped.shape[:2]
+                if ww > 0 and wh > 0 and ww / float(wh) >= 1.5:
+                    return warped
         return plate_image
+
+    def _save_debug_crop(self, plate_image):
+        try:
+            from data_dir import get_data_dir
+            dbg_dir = os.path.join(get_data_dir(), "plate_debug")
+            os.makedirs(dbg_dir, exist_ok=True)
+            cv2.imwrite(os.path.join(dbg_dir, "crop_raw.jpg"), plate_image)
+            cv2.imwrite(os.path.join(dbg_dir, "crop_preprocessed.jpg"),
+                        self._preprocess_plate(plate_image))
+        except Exception:
+            pass
+
+    @torch.no_grad()
+    def _decode_crnn(self, plate_image):
+        tensor = self.transform(plate_image).unsqueeze(0).to(self.device)
+        preds = self.model(tensor)
+        preds = preds.permute(1, 0, 2).argmax(dim=2)[0]
+        decoded_seq = []
+        last_char_idx = 0
+        for char_idx in preds:
+            char_idx = char_idx.item()
+            if char_idx != 0 and char_idx != last_char_idx:
+                decoded_seq.append(self.int_to_char.get(char_idx, ""))
+            last_char_idx = char_idx
+        return "".join(decoded_seq)
 
     @torch.no_grad()
     def _recognize_crnn(self, plate_image):
         try:
-            processed = self._preprocess_plate(plate_image)
-            tensor = self.transform(processed).unsqueeze(0).to(self.device)
-            preds = self.model(tensor)
-            preds = preds.permute(1, 0, 2).argmax(dim=2)[0]
-            decoded_seq = []
-            last_char_idx = 0
-            for char_idx in preds:
-                char_idx = char_idx.item()
-                if char_idx != 0 and char_idx != last_char_idx:
-                    decoded_seq.append(self.int_to_char.get(char_idx, ""))
-                last_char_idx = char_idx
-            text = "".join(decoded_seq)
-            if PLATE_PATTERN.match(text):
-                return text
+            candidates = []
+            try:
+                candidates.append(self._preprocess_plate(plate_image))
+            except Exception:
+                pass
+            candidates.append(plate_image)
+
+            raw_texts = []
+            for variant in candidates:
+                if variant is None or variant.size == 0:
+                    continue
+                text = self._decode_crnn(variant)
+                if not text:
+                    continue
+                raw_texts.append(text)
+                if PLATE_PATTERN.match(text):
+                    return text
+            if raw_texts:
+                logger.info(f"CRNN сырой текст (не прошёл шаблон): {raw_texts}")
         except Exception as e:
             logger.error(f"CRNN ошибка: {e}")
         return None
@@ -157,6 +193,8 @@ class PlateRecognizer:
         if image is None or image.size == 0:
             return None
 
+        self._save_debug_crop(image)
+
         text = self._recognize_crnn(image)
         if text:
             logger.info(f"CRNN: {text}")
@@ -164,12 +202,20 @@ class PlateRecognizer:
 
         if self.ocr:
             try:
-                results = self.ocr.readtext(image)
-                for (_, ocr_text, conf) in results:
-                    clean = re.sub(r'[^A-Za-z0-9]', "", ocr_text.upper())
-                    if PLATE_PATTERN.match(clean):
-                        logger.info(f"EasyOCR: {clean}")
-                        return {"text": clean, "confidence": conf, "engine": "EasyOCR"}
+                variants = [image]
+                try:
+                    pre = self._preprocess_plate(image)
+                    if pre is not image and pre.size > 0:
+                        variants.append(pre)
+                except Exception:
+                    pass
+                for variant in variants:
+                    results = self.ocr.readtext(variant)
+                    for (_, ocr_text, conf) in results:
+                        clean = re.sub(r'[^A-Za-z0-9]', "", ocr_text.upper())
+                        if PLATE_PATTERN.match(clean):
+                            logger.info(f"EasyOCR: {clean}")
+                            return {"text": clean, "confidence": conf, "engine": "EasyOCR"}
             except Exception as e:
                 logger.error(f"EasyOCR ошибка: {e}")
 
