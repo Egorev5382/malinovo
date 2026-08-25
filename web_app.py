@@ -154,6 +154,17 @@ def debug_frame():
     return resp
 
 
+@app.route("/plate_debug/<path:filename>")
+@login_required
+def plate_debug(filename):
+    folder = os.path.join(DATA_DIR, "plate_debug")
+    if not os.path.exists(os.path.join(folder, filename)):
+        return "Нет файла", 404
+    resp = send_from_directory(folder, filename)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.route("/api/logs")
 @login_required
 def api_logs():
