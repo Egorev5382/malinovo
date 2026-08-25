@@ -13,6 +13,12 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
     opencv-python-headless SQLAlchemy Flask PyYAML Pillow numpy requests \
     pandas matplotlib seaborn tqdm easyocr ultralytics paho-mqtt
 
+ENV EASYOCR_MODULE_PATH=/opt/easyocr_models
+RUN mkdir -p /opt/easyocr_models \
+    && python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" \
+    && mv yolov8n.pt /opt/yolov8n.pt \
+    && python -c "import easyocr; easyocr.Reader(['ru','en'], gpu=False, verbose=False)"
+
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
 

@@ -51,8 +51,9 @@ class CarDetector:
         self.yolov8 = None
         try:
             from ultralytics import YOLO
-            self.yolov8 = YOLO("yolov8n.pt")
-            logger.info("YOLOv8n загружен (доп. детекция)")
+            y8_path = "/opt/yolov8n.pt" if os.path.exists("/opt/yolov8n.pt") else "yolov8n.pt"
+            self.yolov8 = YOLO(y8_path)
+            logger.info(f"YOLOv8n загружен (доп. детекция): {y8_path}")
         except Exception as e:
             logger.warning(f"YOLOv8n недоступен: {e}")
 
