@@ -12,7 +12,7 @@ os.environ.setdefault(
 )
 
 STALE_HASH_REPEATS = 3
-MAX_CONNECTION_AGE_SEC = 300
+MAX_CONNECTION_AGE_SEC = 75
 
 
 class Camera:
@@ -34,10 +34,17 @@ class Camera:
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
             pass
+        t0 = time.monotonic()
+        flushed = 0
+        while time.monotonic() - t0 < 1.5 and flushed < 15:
+            ret, _f = self.cap.read()
+            if not ret:
+                break
+            flushed += 1
         self._connected_at = time.monotonic()
         self._stale_count = 0
         self._last_bytes = None
-        logger.info(f"Подключено к камере: {self.rtsp_url}")
+        logger.info(f"Подключено к камере: {self.rtsp_url} (буфер сброшен: {flushed} кадров)")
         return True
 
     @staticmethod
