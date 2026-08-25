@@ -83,6 +83,45 @@ class CarDetector:
                 output["buses"].append((x1, y1, x2, y2))
 
         if not output["plates"]:
+            vehicles = output["cars"] + output["trucks"] + output["buses"]
+            vehicles = sorted(
+                vehicles,
+                key=lambda b: (b[2] - b[0]) * (b[3] - b[1]),
+                reverse=True
+            )[:3]
+            for (vx1, vy1, vx2, vy2) in vehicles:
+                pad_x = int((vx2 - vx1) * 0.15)
+                pad_y = int((vy2 - vy1) * 0.15)
+                cx1 = max(0, vx1 - pad_x)
+                cy1 = max(0, vy1 - pad_y)
+                cx2 = min(w, vx2 + pad_x)
+                cy2 = min(h, vy2 + pad_y)
+                crop = frame[cy1:cy2, cx1:cx2]
+                ch2, cw2 = crop.shape[:2]
+                if cw2 < 80 or ch2 < 60:
+                    continue
+                try:
+                    r3 = self.model([crop])
+                    labels3 = r3.xyxyn[0][:, -1].cpu().numpy()
+                    cords3 = r3.xyxyn[0][:, :-1].cpu().numpy()
+                    found_crop = False
+                    for i in range(len(labels3)):
+                        if int(labels3[i]) != 0:
+                            continue
+                        row = cords3[i]
+                        px1 = cx1 + int(row[0] * cw2)
+                        py1 = cy1 + int(row[1] * ch2)
+                        px2 = cx1 + int(row[2] * cw2)
+                        py2 = cy1 + int(row[3] * ch2)
+                        output["plates"].append((px1, py1, px2, py2))
+                        found_crop = True
+                    if found_crop:
+                        logger.info(f"Номер найден на кропе машины ({cw2}x{ch2})")
+                        break
+                except Exception as e:
+                    logger.warning(f"Детекция по кропу машины: {e}")
+
+        if not output["plates"]:
             try:
                 small = cv2.resize(frame, (w // 2, h // 2))
                 r2 = self.model([small])
