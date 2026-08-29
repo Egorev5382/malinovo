@@ -1,6 +1,7 @@
 import os
 import cv2
 import time
+import select
 import logging
 import threading
 import subprocess
@@ -10,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 RECONNECT_SEC = 60
 STALE_TIMEOUT_SEC = 6
+READ_IDLE_SEC = 3.0
 OUT_W, OUT_H = 1280, 720
+FRAME_SIZE = OUT_W * OUT_H * 3
 
 
 class Camera:
@@ -20,12 +23,17 @@ class Camera:
         self._capture_time = 0.0
         self._lock = threading.Lock()
         self._stop = False
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread = threading.Thread(target=self._run, daemon=True, name="camera-capture")
         self._thread.start()
 
     def _run(self):
         while not self._stop:
-            self._capture_loop()
+            try:
+                self._capture_loop()
+            except Exception as e:
+                logger.error(f"Камера: неожиданная ошибка: {e}")
+            if not self._stop:
+                time.sleep(1)
 
     def _start_ffmpeg(self):
         cmd = [
@@ -47,56 +55,78 @@ class Camera:
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            bufsize=OUT_W * OUT_H * 3 * 2
+            bufsize=FRAME_SIZE * 2
         )
 
     def _capture_loop(self):
         proc = self._start_ffmpeg()
         connected_at = time.monotonic()
-        frame_size = OUT_W * OUT_H * 3
 
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + 10
         buf = b""
         while not self._stop and time.monotonic() < deadline:
             if proc.poll() is not None:
-                err = proc.stderr.read().decode(errors="replace")[:300]
-                logger.error(f"FFmpeg завершился (код {proc.returncode}): {err}")
-                time.sleep(1)
+                err = proc.stderr.read().decode(errors="replace")[:500]
+                logger.error(f"FFmpeg завершился до старта (код {proc.returncode}): {err}")
                 return
-            chunk = proc.stdout.read(frame_size * 2)
+            r, _, _ = select.select([proc.stdout], [], [], READ_IDLE_SEC)
+            if not r:
+                logger.warning("Нет данных от камеры при старте — переподключение")
+                break
+            chunk = proc.stdout.read(FRAME_SIZE * 2)
             if not chunk:
                 time.sleep(0.1)
                 continue
             buf += chunk
-            if len(buf) >= frame_size:
+            if len(buf) >= FRAME_SIZE:
                 break
 
-        if len(buf) < frame_size:
-            err = proc.stderr.read().decode(errors="replace")[:300] if proc.stderr else ""
-            logger.error(f"Не удалось получить кадр от ffmpeg: {err}")
+        if len(buf) < FRAME_SIZE:
+            err = b""
+            if proc.stderr:
+                try:
+                    err = proc.stderr.read(1024)
+                except Exception:
+                    pass
+            logger.error(f"Не удалось получить кадр: {err.decode(errors='replace')[:300]}")
             try:
                 proc.terminate()
                 proc.wait(timeout=3)
             except Exception:
-                pass
-            time.sleep(1)
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
             return
 
-        logger.info(f"Камера: {OUT_W}x{OUT_H}")
-        first_frame = np.frombuffer(buf[:frame_size], dtype=np.uint8).reshape((OUT_H, OUT_W, 3))
+        logger.info(f"Камера подключена: {OUT_W}x{OUT_H}")
+        frame = np.frombuffer(buf[:FRAME_SIZE], dtype=np.uint8).reshape((OUT_H, OUT_W, 3))
         with self._lock:
-            self._frame = first_frame
+            self._frame = frame
             self._capture_time = time.monotonic()
 
         while not self._stop:
             if time.monotonic() - connected_at > RECONNECT_SEC:
                 logger.info("Профилактическое переподключение к камере")
                 break
-            raw = proc.stdout.read(frame_size)
-            if not raw or len(raw) < frame_size:
+            try:
+                r, _, _ = select.select([proc.stdout], [], [], READ_IDLE_SEC)
+                if not r:
+                    logger.warning(f"Нет данных от камеры {READ_IDLE_SEC:.0f} сек — переподключение")
+                    break
+                raw = proc.stdout.read(FRAME_SIZE)
+            except Exception as e:
+                logger.warning(f"Ошибка чтения кадра: {e}")
+                break
+            if not raw or len(raw) < FRAME_SIZE:
                 if proc.poll() is not None:
-                    err = proc.stderr.read().decode(errors="replace")[:200] if proc.stderr else ""
-                    logger.warning(f"FFmpeg завершился (код {proc.returncode}): {err}")
+                    err = b""
+                    if proc.stderr:
+                        try:
+                            err = proc.stderr.read(512)
+                        except Exception:
+                            pass
+                    logger.warning(f"FFmpeg завершился (код {proc.returncode}): {err.decode(errors='replace')[:200]}")
                 else:
                     logger.warning("Неполный кадр — переподключение")
                 break
@@ -113,9 +143,6 @@ class Camera:
                 proc.kill()
             except Exception:
                 pass
-
-        if not self._stop:
-            time.sleep(0.3)
 
     def get_frame(self):
         with self._lock:
