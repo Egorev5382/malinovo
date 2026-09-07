@@ -1,5 +1,6 @@
 import math
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +87,15 @@ class Zone:
         import cv2
         h, w = img.shape[:2]
         if self.kind == "polygon":
-            pts = [(int(x), int(y)) for x, y in self._poly_pixels(w, h)]
+            pts = np.array([(int(x), int(y)) for x, y in self._poly_pixels(w, h)],
+                           dtype=np.int32)
             overlay = img.copy()
             cv2.polylines(img, [pts], isClosed=True, color=color,
                           thickness=thickness, lineType=cv2.LINE_AA)
             cv2.fillPoly(overlay, [pts], color)
             cv2.addWeighted(overlay, 0.2, img, 0.8, 0, img)
             for p in pts:
-                cv2.circle(img, (p[0], p[1]), 6, color, -1)
+                cv2.circle(img, (int(p[0]), int(p[1])), 6, color, -1)
         else:
             x1, y1, x2, y2 = self._line_pixels(w, h)
             cv2.line(img, (int(x1), int(y1)), (int(x2), int(y2)), color, thickness)
