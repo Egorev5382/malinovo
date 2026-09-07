@@ -32,6 +32,12 @@ class ZoneLine:
         t = c1 / c2
         return math.hypot(x - (x1 + t * vx), y - (y1 + t * vy))
 
+    def which_side(self, x, y, frame_w, frame_h):
+        """Сторона линии: >=0 с одной стороны, <0 с другой."""
+        x1, y1, x2, y2 = self.to_pixels(frame_w, frame_h)
+        vx, vy = x2 - x1, y2 - y1
+        return vx * (y - y1) - vy * (x - x1)
+
     def in_zone(self, x, y, frame_w, frame_h, tol=None):
         return self.distance(x, y, frame_w, frame_h) <= (tol or self.tolerance)
 

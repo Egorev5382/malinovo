@@ -34,6 +34,18 @@ def _box_bottom_center(box):
     return ((box[0] + box[2]) // 2, box[3])
 
 
+def _arrival_event(zone, entry, px, py, frame_w, frame_h):
+    """True, если машина в зоне (у линии) ИЛИ пересекла линию относительно прошлого кадра."""
+    if zone is None:
+        return True
+    side = 1 if zone.which_side(px, py, frame_w, frame_h) >= 0 else -1
+    prev = entry.get("side")
+    entry["side"] = side
+    if prev is None:
+        return zone.in_zone(px, py, frame_w, frame_h)
+    return prev != side or zone.in_zone(px, py, frame_w, frame_h)
+
+
 def load_config(path="config.yaml"):
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -210,14 +222,6 @@ def main():
                     engine = plate_info.get("engine", "?")
                     logger.info(f"Номер: {plate_text} | Тип: {vehicle_type} | Движок: {engine} | Точность: {plate_conf:.2f}")
 
-                    if zone is not None:
-                        h, w = frame.shape[:2]
-                        px, py = _box_center(plate_bbox)
-                        bx, by = _box_bottom_center(vehicle_bbox)
-                        if not zone.in_zone(px, py, w, h) and not zone.in_zone(bx, by, w, h):
-                            logger.info(f"Машина {plate_text} вне зоны — ожидание въезда")
-                            continue
-
                     photo_path = None
                     current_time = time.time()
                     entry = active_plates.get(plate_text)
@@ -225,6 +229,14 @@ def main():
                         entry = {"opened": False, "logged": False, "last_seen": current_time}
                         active_plates[plate_text] = entry
                     entry["last_seen"] = current_time
+
+                    if zone is not None:
+                        h, w = frame.shape[:2]
+                        arrival = _arrival_event(zone, entry, *_box_bottom_center(vehicle_bbox), w, h)
+                        arrival = arrival or zone.in_zone(*_box_center(plate_bbox), w, h)
+                        if not arrival:
+                            logger.info(f"Машина {plate_text} вне зоны — ожидание въезда")
+                            continue
 
                     is_allowed = db.is_allowed(plate_text)
 
@@ -272,13 +284,6 @@ def main():
                 engine = plate_info.get("engine", "?")
                 logger.info(f"Номер (без машины): {plate_text} | Движок: {engine} | Точность: {plate_conf:.2f}")
 
-                if zone is not None:
-                    h, w = frame.shape[:2]
-                    px, py = _box_center(plate_bbox)
-                    if not zone.in_zone(px, py, w, h):
-                        logger.info(f"Номер {plate_text} вне зоны — ожидание въезда")
-                        continue
-
                 photo_path = None
                 current_time = time.time()
                 entry = active_plates.get(plate_text)
@@ -286,6 +291,12 @@ def main():
                     entry = {"opened": False, "logged": False, "last_seen": current_time}
                     active_plates[plate_text] = entry
                 entry["last_seen"] = current_time
+
+                if zone is not None:
+                    h, w = frame.shape[:2]
+                    if not _arrival_event(zone, entry, *_box_center(plate_bbox), w, h):
+                        logger.info(f"Номер {plate_text} вне зоны — ожидание въезда")
+                        continue
 
                 is_allowed = db.is_allowed(plate_text)
 
