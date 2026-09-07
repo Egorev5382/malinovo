@@ -10,6 +10,7 @@ from detector import CarDetector
 from plate_reader import PlateRecognizer
 from database import Database
 from mqtt_gate import MQTTGate
+from zone import ZoneLine
 from data_dir import get_data_dir, resolve_db_path, migrate_old_data
 
 logging.basicConfig(
@@ -23,6 +24,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _box_center(box):
+    return ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
+
+
+def _box_bottom_center(box):
+    return ((box[0] + box[2]) // 2, box[3])
 
 
 def load_config(path="config.yaml"):
@@ -137,6 +146,8 @@ def main():
     empty_frame_counter = 0
     empty_frame_interval = 5
 
+    zone = ZoneLine.from_config(config.get("zone"))
+
     active_plates = {}
     ZONE_LEAVE_SEC = 5
 
@@ -169,6 +180,8 @@ def main():
                         cv2.rectangle(dbg, (b[0], b[1]), (b[2], b[3]), (255, 0, 255), 4)
                     for b in detections["plates"]:
                         cv2.rectangle(dbg, (b[0], b[1]), (b[2], b[3]), (0, 0, 255), 4)
+                    if zone is not None:
+                        zone.draw(dbg)
                     debug_path = os.path.join(data_dir, "debug_frame.jpg")
                     cv2.imwrite(debug_path, dbg)
                 except Exception as e:
@@ -196,6 +209,14 @@ def main():
                     plate_conf = plate_info["confidence"]
                     engine = plate_info.get("engine", "?")
                     logger.info(f"Номер: {plate_text} | Тип: {vehicle_type} | Движок: {engine} | Точность: {plate_conf:.2f}")
+
+                    if zone is not None:
+                        h, w = frame.shape[:2]
+                        px, py = _box_center(plate_bbox)
+                        bx, by = _box_bottom_center(vehicle_bbox)
+                        if not zone.in_zone(px, py, w, h) and not zone.in_zone(bx, by, w, h):
+                            logger.info(f"Машина {plate_text} вне зоны — ожидание въезда")
+                            continue
 
                     photo_path = None
                     current_time = time.time()
@@ -250,6 +271,13 @@ def main():
                 plate_conf = plate_info["confidence"]
                 engine = plate_info.get("engine", "?")
                 logger.info(f"Номер (без машины): {plate_text} | Движок: {engine} | Точность: {plate_conf:.2f}")
+
+                if zone is not None:
+                    h, w = frame.shape[:2]
+                    px, py = _box_center(plate_bbox)
+                    if not zone.in_zone(px, py, w, h):
+                        logger.info(f"Номер {plate_text} вне зоны — ожидание въезда")
+                        continue
 
                 photo_path = None
                 current_time = time.time()
