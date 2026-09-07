@@ -10,7 +10,7 @@ from detector import CarDetector
 from plate_reader import PlateRecognizer
 from database import Database
 from mqtt_gate import MQTTGate
-from zone import ZoneLine
+from zone import Zone
 from data_dir import get_data_dir, resolve_db_path, migrate_old_data
 
 logging.basicConfig(
@@ -32,18 +32,6 @@ def _box_center(box):
 
 def _box_bottom_center(box):
     return ((box[0] + box[2]) // 2, box[3])
-
-
-def _arrival_event(zone, entry, px, py, frame_w, frame_h):
-    """True, если машина в зоне (у линии) ИЛИ пересекла линию относительно прошлого кадра."""
-    if zone is None:
-        return True
-    side = 1 if zone.which_side(px, py, frame_w, frame_h) >= 0 else -1
-    prev = entry.get("side")
-    entry["side"] = side
-    if prev is None:
-        return zone.in_zone(px, py, frame_w, frame_h)
-    return prev != side or zone.in_zone(px, py, frame_w, frame_h)
 
 
 def load_config(path="config.yaml"):
@@ -158,7 +146,7 @@ def main():
     empty_frame_counter = 0
     empty_frame_interval = 5
 
-    zone = ZoneLine.from_config(config.get("zone"))
+    zone = Zone.from_config(config.get("zone"))
 
     active_plates = {}
     ZONE_LEAVE_SEC = 5
@@ -232,7 +220,7 @@ def main():
 
                     if zone is not None:
                         h, w = frame.shape[:2]
-                        arrival = _arrival_event(zone, entry, *_box_bottom_center(vehicle_bbox), w, h)
+                        arrival = zone.arrival(entry, *_box_bottom_center(vehicle_bbox), w, h)
                         arrival = arrival or zone.in_zone(*_box_center(plate_bbox), w, h)
                         if not arrival:
                             logger.info(f"Машина {plate_text} вне зоны — ожидание въезда")
@@ -294,7 +282,7 @@ def main():
 
                 if zone is not None:
                     h, w = frame.shape[:2]
-                    if not _arrival_event(zone, entry, *_box_center(plate_bbox), w, h):
+                    if not zone.arrival(entry, *_box_center(plate_bbox), w, h):
                         logger.info(f"Номер {plate_text} вне зоны — ожидание въезда")
                         continue
 

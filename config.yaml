@@ -39,11 +39,11 @@ zone:
   enabled: true
   ref_w: 1280
   ref_h: 720
-  line_x1: 612
-  line_y1: 291
-  line_x2: 847
-  line_y2: 303
-  tolerance: 60
+  points:
+    - [650, 305]
+    - [848, 297]
+    - [933, 714]
+    - [1, 717]
 
 tunnel:
   enabled: false
