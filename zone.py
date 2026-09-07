@@ -87,9 +87,11 @@ class Zone:
         h, w = img.shape[:2]
         if self.kind == "polygon":
             pts = [(int(x), int(y)) for x, y in self._poly_pixels(w, h)]
+            overlay = img.copy()
             cv2.polylines(img, [pts], isClosed=True, color=color,
                           thickness=thickness, lineType=cv2.LINE_AA)
-            cv2.fillPoly(img, [pts], color)
+            cv2.fillPoly(overlay, [pts], color)
+            cv2.addWeighted(overlay, 0.2, img, 0.8, 0, img)
             for p in pts:
                 cv2.circle(img, (p[0], p[1]), 6, color, -1)
         else:
