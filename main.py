@@ -57,6 +57,22 @@ def main():
         photos_dir=os.path.join(data_dir, "photos")
     )
 
+    if config.get("database", {}).get("clean_on_start", True):
+        db.clear_logs_and_photos()
+        dbg_dir = os.path.join(data_dir, "plate_debug")
+        if os.path.isdir(dbg_dir):
+            removed = 0
+            for name in os.listdir(dbg_dir):
+                try:
+                    p = os.path.join(dbg_dir, name)
+                    if os.path.isfile(p):
+                        os.remove(p)
+                        removed += 1
+                except Exception:
+                    pass
+            if removed:
+                logger.info(f"Очистка при запуске: удалено отладочных фото={removed}")
+
     use_ha = config.get("gate", {}).get("use_ha", False)
     if use_ha:
         from ha_gate import HAGate
@@ -117,15 +133,12 @@ def main():
     logger.info(f"=== Веб-интерфейс: http://{host_ip}:{port} ===")
 
     interval = config["camera"]["capture_interval"]
-    gate_cooldown = config["gate"]["open_cooldown"]
-    last_gate_time = 0
     last_debug_save = 0.0
     empty_frame_counter = 0
     empty_frame_interval = 5
 
-    opened_plates = set()
-    presence = {}
-    PRESENCE_RESET_SEC = 90
+    active_plates = {}
+    ZONE_LEAVE_SEC = 5
 
     logger.info(f"Интервал захвата: {interval} сек")
     logger.info("Ожидание транспорта...")
@@ -184,34 +197,37 @@ def main():
                     engine = plate_info.get("engine", "?")
                     logger.info(f"Номер: {plate_text} | Тип: {vehicle_type} | Движок: {engine} | Точность: {plate_conf:.2f}")
 
-                    photo_path = db.save_photo(frame, plate_text)
+                    photo_path = None
+                    current_time = time.time()
+                    entry = active_plates.get(plate_text)
+                    if entry is None:
+                        entry = {"opened": False, "logged": False, "last_seen": current_time}
+                        active_plates[plate_text] = entry
+                    entry["last_seen"] = current_time
+
                     is_allowed = db.is_allowed(plate_text)
 
                     gate_opened = False
-                    current_time = time.time()
-                    if (current_time - presence.get(plate_text, 0)) > PRESENCE_RESET_SEC:
-                        opened_plates.discard(plate_text)
-                    presence[plate_text] = current_time
-
-                    if is_allowed and plate_text not in opened_plates \
-                            and (current_time - last_gate_time) > gate_cooldown:
+                    if is_allowed and not entry["opened"]:
                         if gate.open_gate():
                             gate_opened = True
-                            last_gate_time = current_time
-                            opened_plates.add(plate_text)
-                            logger.info(f"Ворота открыты для {plate_text} (один сигнал за въезд)")
+                            entry["opened"] = True
+                            logger.info(f"Ворота открыты для {plate_text} (новое появление в зоне — снова открыто)")
                         else:
                             logger.error(f"Не удалось открыть ворота для {plate_text}")
                     elif not is_allowed:
                         logger.info(f"Номер {plate_text} не в базе — доступ запрещён")
 
-                    db.add_log(
-                        plate=plate_text,
-                        photo_path=photo_path,
-                        allowed=is_allowed,
-                        gate_opened=gate_opened,
-                        confidence=plate_conf
-                    )
+                    if not entry["logged"]:
+                        photo_path = db.save_photo(frame, plate_text)
+                        db.add_log(
+                            plate=plate_text,
+                            photo_path=photo_path,
+                            allowed=is_allowed,
+                            gate_opened=gate_opened,
+                            confidence=plate_conf
+                        )
+                        entry["logged"] = True
 
                     gate.publish_plate(plate_text, is_allowed, gate_opened)
 
@@ -235,36 +251,45 @@ def main():
                 engine = plate_info.get("engine", "?")
                 logger.info(f"Номер (без машины): {plate_text} | Движок: {engine} | Точность: {plate_conf:.2f}")
 
-                photo_path = db.save_photo(frame, plate_text)
+                photo_path = None
+                current_time = time.time()
+                entry = active_plates.get(plate_text)
+                if entry is None:
+                    entry = {"opened": False, "logged": False, "last_seen": current_time}
+                    active_plates[plate_text] = entry
+                entry["last_seen"] = current_time
+
                 is_allowed = db.is_allowed(plate_text)
 
                 gate_opened = False
-                current_time = time.time()
-                if (current_time - presence.get(plate_text, 0)) > PRESENCE_RESET_SEC:
-                    opened_plates.discard(plate_text)
-                presence[plate_text] = current_time
-
-                if is_allowed and plate_text not in opened_plates \
-                        and (current_time - last_gate_time) > gate_cooldown:
+                if is_allowed and not entry["opened"]:
                     if gate.open_gate():
                         gate_opened = True
-                        last_gate_time = current_time
-                        opened_plates.add(plate_text)
-                        logger.info(f"Ворота открыты для {plate_text} (один сигнал за въезд)")
+                        entry["opened"] = True
+                        logger.info(f"Ворота открыты для {plate_text} (новое появление в зоне — снова открыто)")
                     else:
                         logger.error(f"Не удалось открыть ворота для {plate_text}")
                 elif not is_allowed:
                     logger.info(f"Номер {plate_text} не в базе — доступ запрещён")
 
-                db.add_log(
-                    plate=plate_text,
-                    photo_path=photo_path,
-                    allowed=is_allowed,
-                    gate_opened=gate_opened,
-                    confidence=plate_conf
-                )
+                if not entry["logged"]:
+                    photo_path = db.save_photo(frame, plate_text)
+                    db.add_log(
+                        plate=plate_text,
+                        photo_path=photo_path,
+                        allowed=is_allowed,
+                        gate_opened=gate_opened,
+                        confidence=plate_conf
+                    )
+                    entry["logged"] = True
 
                 gate.publish_plate(plate_text, is_allowed, gate_opened)
+
+            now = time.time()
+            for p in list(active_plates):
+                if now - active_plates[p]["last_seen"] > ZONE_LEAVE_SEC:
+                    logger.info(f"Машина {p} покинула зону — при следующем появлении ворота откроются снова")
+                    del active_plates[p]
 
             if total == 0:
                 empty_frame_counter += 1

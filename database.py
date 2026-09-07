@@ -143,6 +143,30 @@ class Database:
         finally:
             session.close()
 
+    def clear_logs_and_photos(self) -> tuple:
+        session = self.Session()
+        cleared_logs = 0
+        try:
+            cleared_logs = session.query(EntryLog).delete()
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Ошибка очистки логов: {e}")
+        finally:
+            session.close()
+
+        cleared_photos = 0
+        for name in os.listdir(self.photos_dir):
+            path = os.path.join(self.photos_dir, name)
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+                    cleared_photos += 1
+            except Exception as e:
+                logger.warning(f"Не удалось удалить фото {path}: {e}")
+        logger.info(f"Очистка при запуске: удалено логов={cleared_logs}, фото={cleared_photos}")
+        return cleared_logs, cleared_photos
+
     def get_log_count(self) -> int:
         session = self.Session()
         try:
