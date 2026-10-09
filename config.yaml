@@ -7,7 +7,7 @@ gate:
   use_ha: true
 
 homeassistant:
-  entity_id: "switch.vorota"
+  entity_id: "event.vorota"
   ha_url: "http://homeassistant:8123"
   ha_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI2OWJjMWNjYzFhNTA0YzUwYWFhNmI5YmMxZDU2YWMwMCIsImlhdCI6MTc4NzYwNzYzMSwiZXhwIjoyMTAyOTY3NjMxfQ.nFs8-ELMUNUMXrOG8lCeUXtJatfdtMgWcwp0NtnR-eE"
 
